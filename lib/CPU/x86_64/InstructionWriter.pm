@@ -397,7 +397,7 @@ Typical 2-arg 64-bit instruction:
 
 =head1 UTILITY METHODS FOR ENCODING INSTRUCTIONS
 
-=head2 _encode_rex_reg
+=head2 _append_reg_reg
 
 Encode standard 64-bit instruction with REX prefix which refers only to registers.
 This skips all the memory addressing logic since it is only operating on registers,
@@ -449,7 +449,7 @@ sub _append_reg_reg {
 	$self;
 }
 
-=head2 _encode_rex_mem
+=head2 _append_reg_mem
 
 Encode standard 64-bit instruction with REX prefix which addresses memory for one of its operands.
 The encoded length might not be resolved until later if an unknown displacement value was given.
@@ -603,7 +603,7 @@ sub _encode_mov64_imm {
 }
 
 sub _mark_unresolved {
-	my ($self, $location, %params)= @_;
+	my ($self, $location)= (shift, shift);
 	my $start= length($self->{_buf});
 	
 	# If location is negative, move the 'start' back that many bytes and the length is the abs of location.
@@ -617,7 +617,7 @@ sub _mark_unresolved {
 		$self->{_buf} .= "\0" x $location;
 	}
 	
-	push @{ $self->_unresolved }, { start => $start, len => $location, %params };
+	push @{ $self->_unresolved }, { start => $start, len => $location, @_ };
 }
 
 sub _resolve {
