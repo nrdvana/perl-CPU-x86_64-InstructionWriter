@@ -90,19 +90,26 @@ sub get_label {
 	$labels->{$name} //= { name => $name };
 }
 
+=head2 mark
+
+Bind a named label to the current position in the instruction buffer.  This position will shift
+automatically if it follows instructions whose length is not yet known.  (as a consequence, you
+should not use the numeric offset of the label until the instruction stream has been "resolved")
+
+=cut
+
 sub mark {
 	@_ == 2 or croak "Invalid arguments to 'mark'";
 	
-	# If they gave an undefined label, we auto-populate it
-	if (!defined $_[1]) {
-		$_[1]= $_[0]->get_label
-	}
-	# If they give a label by name, auto-inflate it
-	elsif (!ref $_[1]) {
-		splice @_, 1, 1, $_[0]->get_label($_[1]);
-	}
+	# If they gave an undefined label, we auto-populate it, which modifies
+	# the variable they passed to this function.
+	$_[1]= $_[0]->get_label
+		unless defined $_[1];
 	
 	my ($self, $label)= @_;
+	# If they give a label by name, auto-inflate it
+	$label= $self->get_label($label)
+		unless ref $label;
 	
 	# A label can only exist once
 	defined $label->{start} and croak "Can't mark label '$label->{name}' twice";
@@ -116,10 +123,34 @@ sub mark {
 	return $self;
 }
 
+=head2 bytes
+
+Return the assembled instructions as a string of bytes.  This will fail if any of the labels were
+left un-marked or if unknown placeholders have not been resolved.
+
+=cut
+
 sub bytes {
 	my $self= shift;
 	$self->_resolve;
 	return $self->_buf;
+}
+
+=head1 INSTRUCTIONS
+
+The following methods append an instruction to the buffer, and return C<$self> so you can continue
+calling instructions in a chain.
+
+=head2 nop
+
+Insert a no-op byte.  TODO: add second argument that inserts nops until a specified alignment or
+memory address.
+
+=cut
+
+sub nop {
+	$_[0]{_buf} .= "\x90";
+	$_[0];
 }
 
 # reg, reg
@@ -178,6 +209,7 @@ Unconditional jump to label (or 32-bit offset constant).
 
 sub jmp {
 	my ($self, $label)= @_;
+	use integer;
 	$label= $self->get_label($label)
 		unless ref $label;
 	my $ofs;
@@ -194,7 +226,7 @@ sub jmp {
 		encode => sub {
 			# We rely on the calc_size() getting called before encode
 			return $short?
-				pack('CC', 0xEB, $ofs)
+				pack('Cc', 0xEB, $ofs)
 				: pack('CV', 0xE9, $ofs);
 		}
 	);
@@ -562,6 +594,7 @@ or 6 bytes for jumps of 32-bit offsets.
 
 sub _append_jmp_cond {
 	my ($self, $cond, $label)= @_;
+	use integer;
 	$label= $self->get_label($label)
 		unless ref $label;
 	my $ofs;
@@ -572,13 +605,14 @@ sub _append_jmp_cond {
 			my ($self, $params)= @_;
 			defined $label->{start} or croak "Label $label is not marked";
 			$ofs= $label->{start} - ($params->{start}+$params->{len});
-			$short= (($ofs>>7) == ($ofs>>8)); 
+			$short= (($ofs>>7) == ($ofs>>8));
+			#print "jmp ofs=$ofs short=$short\n";
 			return $short? 2 : 6;
 		},
 		encode => sub {
 			# We rely on the calc_size() getting called before encode
 			return $short?
-				pack('CC', 0x70 + $cond, $ofs)
+				pack('Cc', 0x70 + $cond, $ofs)
 				: pack('CCV', 0x0F, 0x80 + $cond, $ofs);
 		}
 	);
@@ -610,17 +644,19 @@ sub _mark_unresolved {
 	my ($self, $location)= (shift, shift);
 	my $start= length($self->{_buf});
 	
-	# If location is negative, move the 'start' back that many bytes and the length is the abs of location.
+	# If location is negative, move the 'start' back that many bytes.
+	# The length is the abs of location.
 	if ($location < 0) {
 		$location= -$location;
 		$start -= $location;
 	}
-	# If the location is positive, start is the end of the string, and add padding bytes for the length
-	# of the instruction.
+	# If the location is positive, start is the end of the string.
+	# Add padding bytes for the length of the instruction.
 	else {
 		$self->{_buf} .= "\0" x $location;
 	}
 	
+	#print "Unresolved at $start ($location)\n";
 	push @{ $self->_unresolved }, { start => $start, len => $location, @_ };
 }
 
@@ -633,11 +669,13 @@ sub _resolve {
 		$changed_len= 0;
 		my $ofs= 0;
 		for my $p (@{ $self->_unresolved }) {
+			#print "Shifting $p by $ofs\n" if $ofs;
 			$p->{start} += $ofs if $ofs;
 			my $fn= $p->{calc_size}
 				or next;
 			my $result= $self->$fn($p);
 			if ($result != $p->{len}) {
+				#print "New size is $result\n";
 				$changed_len= 1;
 				$ofs += ($result - $p->{len});
 				$p->{len}= $result;
@@ -650,6 +688,7 @@ sub _resolve {
 	for my $p (@{ $self->_unresolved }) {
 		my $fn= $p->{encode}
 			or next;
+		#print "replace $p->{start}, $p->{len} with $fn\n";
 		substr($self->{_buf}, $p->{start}, $p->{len})= $self->$fn($p);
 	}
 	$len_check == length($self->{_buf})

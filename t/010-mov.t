@@ -8,9 +8,6 @@ use Test::More;
 use Log::Any::Adapter 'TAP';
 use CPU::x86_64::InstructionWriter;
 
-plan skip_all => 'NASM is required for all test cases'
-	unless have_nasm;
-
 sub new_writer { CPU::x86_64::InstructionWriter->new };
 
 sub test_mov_reg_reg {
