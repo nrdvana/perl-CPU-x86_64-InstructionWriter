@@ -2,6 +2,7 @@ package CPU::x86_64::InstructionWriter;
 use Moo;
 use Carp;
 use Exporter 'import';
+use CPU::x86_64::InstructionWriter::Unknown;
 
 =head1 SYNOPSIS
 
@@ -15,14 +16,14 @@ use Exporter 'import';
   # if (x == 1) { ++x } else { ++y }
   my ($else, $end);
   my $machine_code= CPU::x86_64::InstructionWriter->new
-	->cmp64_reg_imm( 'RAX', 0 )
-	->jne($else)        # jump to not-yet-defined label
-	->inc( 'RAX' )
-	->jmp($end)         # jump to another not-yet-defined label
-	->mark($else)       # resolve previous jump to this address
-	->inc( 'RCX' )
-	->mark($end)        # resolve second jump to this address
-	->bytes;
+    ->cmp64_reg_imm( 'RAX', 0 )
+    ->jne($else)        # jump to not-yet-defined label
+    ->inc( 'RAX' )
+    ->jmp($end)         # jump to another not-yet-defined label
+    ->mark($else)       # resolve previous jump to this address
+    ->inc( 'RCX' )
+    ->mark($end)        # resolve second jump to this address
+    ->bytes;
 
 =head1 DESCRIPTION
 
@@ -32,8 +33,8 @@ All instructions are assumed to be for the 64-bit mode of the processor.  Functi
 real mode or segmented 16-bit mode will be handled by the yet-to-be-written x86 module.
 
 This module consists of a bunch of chainable methods which build a string of machine code as
-you call them.  There are also placeholder objects available for generating code when you don't
-know the values that need to be used (for example, relative jumps)
+you call them.  It supports lazy-resolved jump labels, and lazy-bound constants which can be
+assigned a value after the instructions have been assembled.
 
 =cut
 
@@ -94,23 +95,25 @@ sub mark {
 	
 	# If they gave an undefined label, we auto-populate it
 	if (!defined $_[1]) {
-		$_[1]= $self->get_label
+		$_[1]= $_[0]->get_label
 	}
 	# If they give a label by name, auto-inflate it
 	elsif (!ref $_[1]) {
-		$_[1]= $self->get_label($_[1]);
+		splice @_, 1, 1, $_[0]->get_label($_[1]);
 	}
 	
+	my ($self, $label)= @_;
+	
 	# A label can only exist once
-	defined $_[1]{start} and croak "Can't mark label '$_[1]{name}' twice";
+	defined $label->{start} and croak "Can't mark label '$label->{name}' twice";
 	
 	# Set the label's current location
-	$_[1]{start}= length($_[0]{_buf});
-	$_[1]{len}= 0;
+	$label->{start}= length($self->{_buf});
+	$label->{len}= 0;
 	
 	# Add it to the list of unresolved things, so its position can be updated
-	push @{ $_[0]->_unresolved }, $_[1];
-	return $_[0];
+	push @{ $self->_unresolved }, $label;
+	return $self;
 }
 
 sub bytes {
@@ -149,7 +152,7 @@ sub mov64_imm {
 						// croak "$immed is not a defined value";
 					$str= shift->_encode_mov64_imm($reg, $value);
 					length $str;
-				}
+				},
 				encode => sub { $str },
 			);
 		}
@@ -174,7 +177,7 @@ Unconditional jump to label (or 32-bit offset constant).
 =cut
 
 sub jmp {
-	my ($self, $dest)= @_;
+	my ($self, $label)= @_;
 	$label= $self->get_label($label)
 		unless ref $label;
 	my $ofs;
@@ -341,6 +344,7 @@ sub jmp_cx_zero {
 	$self->_mark_unresolved(
 		2, # estimated length
 		encode => sub {
+			my ($self, $params)= @_;
 			defined $label->{start} or croak "Label $label is not marked";
 			my $ofs= $label->{start} - ($params->{start}+$params->{len});
 			(($ofs>>7) == ($ofs>>8)) or croak "Label too far, can only short-jump from JCXZ instruction";
@@ -444,7 +448,7 @@ sub _append_reg_reg {
 	$rex |= $regext{$reg2};
 	
 	$self->{_buf} .= $rex?
-		pack('CCC', 0x80|$rex, $opcode, 0xC0 + ($r1_num << 3) + $r2_num)
+		pack('CCC', 0x40|$rex, $opcode, 0xC0 + ($r1_num << 3) + $r2_num)
 		: pack('CC', $opcode, 0xC0 + ($r1_num << 3) + $r2_num);
 	$self;
 }
@@ -587,10 +591,10 @@ sub _encode_mov64_imm {
 	my $dst_ext= $regext{$reg};
 	use integer;
 	# If the number fits in 32-bits, encode as the classic instruction
-	if (!($value >> 32)) {
+	if (!($immed >> 32)) {
 		return $dst_ext?
 			pack('CCL<', 0x41, 0xB8 + $dst_num, $immed)
-			pack('CL<', 0xB8 + $dst_num, $immed);
+			: pack('CL<', 0xB8 + $dst_num, $immed);
 	}
 	# If the number can sign-extend from 32-bits, encode as 32-bit sign-extend
 	elsif (($immed >> 32) == -1) {
@@ -633,7 +637,7 @@ sub _resolve {
 			my $fn= $p->{calc_size}
 				or next;
 			my $result= $self->$fn($p);
-			if ($result != $len) {
+			if ($result != $p->{len}) {
 				$changed_len= 1;
 				$ofs += ($result - $p->{len});
 				$p->{len}= $result;
@@ -648,8 +652,8 @@ sub _resolve {
 			or next;
 		substr($self->{_buf}, $p->{start}, $p->{len})= $self->$fn($p);
 	}
-	$len_check == length($self->{_buf}
-		or die "An instruction changed length during encode()";
+	$len_check == length($self->{_buf})
+		or die 'An instruction changed length during encode()';
 	
 	# Clear the list
 	@{ $self->_unresolved }= ();

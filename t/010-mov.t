@@ -1,3 +1,4 @@
+#! /usr/bin/env perl
 use strict;
 use warnings;
 use Log::Any::Adapter 'TAP';
@@ -6,7 +7,9 @@ use IO::Handle;
 use File::Temp;
 use FindBin;
 use lib "$FindBin::Bin/../perl_lib";
-use FortyTwo::Compiler::InstructionSet::X86_64;
+use CPU::x86_64::InstructionWriter;
+
+sub new_writer { CPU::x86_64::InstructionWriter->new };
 
 sub reference_assemble {
 	# Can't pipe to nasm, because it tries to mmap the input, or something.
@@ -16,7 +19,7 @@ sub reference_assemble {
 	$infile->print("[bits 64]\n".$_[0]);
 	$infile->flush;
 	my $outfile= File::Temp->new(TEMPLATE => 'asm-mov-XXXXXX', SUFFIX => '.o')
-		 or die "tmpfile: $!";
+		or die "tmpfile: $!";
 	unless (system('nasm', '-o', $outfile, $infile) == 0) {
 		my $e= $?;
 		system('cp', $infile, 'died.asm');
@@ -48,7 +51,7 @@ sub hex_diff {
 sub test_mov_reg_reg {
 	# Generate every combination of to/from registers
 	my $asm= '';
-	my $assembler= FortyTwo::Compiler::InstructionSet::X86_64->new;
+	my $assembler= new_writer;
 	my @r64= qw( rax rcx rdx rbx rsp rbp rsi rdi r8 r9 r10 r11 r12 r13 r14 r15 );
 	for my $src (@r64) {
 		for my $dst (@r64) {
@@ -66,7 +69,7 @@ sub test_mov_reg_reg {
 sub test_mov_reg_imm {
 	# Test immediate values of every bit length
 	my $asm= '';
-	my $assembler= FortyTwo::Compiler::InstructionSet::X86_64->new;
+	my $assembler= new_writer;
 	my @r64= qw( rax rcx rdx rbx rsp rbp rsi rdi r8 r9 r10 r11 r12 r13 r14 r15 );
 	for my $dst (@r64) {
 		for (my $bits= 0; $bits < 64; $bits++) {
@@ -90,14 +93,14 @@ sub test_mov_reg_imm {
 sub test_mov_load_reg {
 	my @r64= qw( rax rcx rdx rbx rsp rbp rsi rdi r8 r9 r10 r11 r12 r13 r14 r15 );
 	my $asm= '';
-	my $assembler= FortyTwo::Compiler::InstructionSet::X86_64->new;
+	my $assembler= new_writer;
 	for my $dst (@r64) {
 		for my $src (@r64) {
 			$asm .= "mov $dst, [$src];\n";
-			$assembler->mov64_from_addr($dst, $src);
+			$assembler->mov64_from_mem($dst, $src);
 			for my $ofs (0, 1, -1, 0x7, -0x8, 0x7F, -0x80, 0x7FFF, -0x8000, 0x7FFFFFFF, -0x80000000) {
 				$asm .= "mov $dst, [$src+$ofs];\n";
-				$assembler->mov64_from_addr($dst, $src, undef, undef, $ofs);
+				$assembler->mov64_from_mem($dst, $src, $ofs, undef, undef);
 			}
 		}
 	}
@@ -111,7 +114,7 @@ sub test_mov_load_reg {
 sub test_mov_load_reg_index {
 	my @r64= qw( rax rcx rdx rbx rsp rbp rsi rdi r8 r9 r10 r11 r12 r13 r14 r15 );
 	my $asm;
-	my $assembler= FortyTwo::Compiler::InstructionSet::X86_64->new;
+	my $assembler= new_writer;
 	for my $dst (@r64) {
 		$asm= '';
 		$assembler= $assembler->new;
@@ -120,10 +123,10 @@ sub test_mov_load_reg_index {
 			for my $rofs (grep { $_ ne 'rsp' } @r64) {
 				for my $mul (1, 2, 4, 8) {
 					$asm .= "mov $dst, [$src+$rofs*$mul];\n";
-					$assembler->mov64_from_addr($dst, $src, $rofs, $mul, undef);
+					$assembler->mov64_from_mem($dst, $src, undef, $rofs, $mul);
 					for my $ofs (0, 1, -1, 0x7, -0x8, 0x7F, -0x80, 0x7FFF, -0x8000, 0x7FFFFFFF, -0x80000000) {
 						$asm .= "mov $dst, [$src+$ofs+$rofs*$mul];\n";
-						$assembler->mov64_from_addr($dst, $src, $rofs, $mul, $ofs);
+						$assembler->mov64_from_mem($dst, $src, $ofs, $rofs, $mul);
 					}
 				}
 			}
@@ -139,7 +142,7 @@ sub test_mov_load_reg_index {
 sub test_mov_stor_reg_index {
 	my @r64= qw( rax rcx rdx rbx rsp rbp rsi rdi r8 r9 r10 r11 r12 r13 r14 r15 );
 	my $asm;
-	my $assembler= FortyTwo::Compiler::InstructionSet::X86_64->new;
+	my $assembler= new_writer;
 	for my $dst (@r64) {
 		$asm= '';
 		$assembler= $assembler->new;
@@ -148,10 +151,10 @@ sub test_mov_stor_reg_index {
 			for my $rofs (grep { $_ ne 'rsp' } @r64) {
 				for my $mul (1, 2, 4, 8) {
 					$asm .= "mov [$dst+$rofs*$mul], $src;\n";
-					$assembler->mov64_to_addr($src, $dst, $rofs, $mul, undef);
+					$assembler->mov64_to_mem($src, $dst, undef, $rofs, $mul);
 					for my $ofs (0, 1, -1, 0x7, -0x8, 0x7F, -0x80, 0x7FFF, -0x8000, 0x7FFFFFFF, -0x80000000) {
 						$asm .= "mov [$dst+$ofs+$rofs*$mul], $src;\n";
-						$assembler->mov64_to_addr($src, $dst, $rofs, $mul, $ofs);
+						$assembler->mov64_to_mem($src, $dst, $ofs, $rofs, $mul);
 					}
 				}
 			}
