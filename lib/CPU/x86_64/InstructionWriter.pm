@@ -361,30 +361,34 @@ sub jmp_if_parity_odd   { shift->_append_jmp_cond(11, shift) }
 *jpo= *jmp_if_parity_odd;
 *jnp= *jmp_if_parity_odd;
 
-=item jmp_cx_zero
+=item jmp_cx_zero, jrcxz
 
 Jump to label if RCX register is zero
 
+=item loop
+
+Jump to label if RCX register is nonzero
+
+=item loopz, loope
+
+Jump to label if RCX register is nonzero and zero flag (ZF) is set
+
+=item loopnz, loopne
+
+Jump to label if RCX register is nonzero and zero flag (ZF) is not set
+
 =cut
 
-sub jmp_cx_zero {
-	my ($self, $label)= @_;
-	$label= $self->get_label($label)
-		unless ref $label;
-	my $ofs;
-	my $short;
-	$self->_mark_unresolved(
-		2, # estimated length
-		encode => sub {
-			my ($self, $params)= @_;
-			defined $label->{start} or croak "Label $label is not marked";
-			my $ofs= $label->{start} - ($params->{start}+$params->{len});
-			(($ofs>>7) == ($ofs>>8)) or croak "Label too far, can only short-jump from JCXZ instruction";
-			return pack('CC', 0xE3, $ofs);
-		}
-	);
-	return $self;
-}
+sub jmp_cx_zero { shift->_append_jmp_cx(0xE3, shift) }
+*jrcxz= *jmp_cx_zero;
+
+sub loop        { shift->_append_jmp_cx(0xE2, shift) }
+
+sub loopz       { shift->_append_jmp_cx(0xE1, shift) }
+*loope= *loopz;
+
+sub loopnz      { shift->_append_jmp_cx(0xE0, shift) }
+*loopne= *loopnz;
 
 =item syscall
 
@@ -617,6 +621,26 @@ sub _append_jmp_cond {
 		}
 	);
 	$self;
+}
+
+sub _append_jmp_cx {
+	my ($self, $op, $label)= @_;
+	use integer;
+	$label= $self->get_label($label)
+		unless ref $label;
+	my $ofs;
+	my $short;
+	$self->_mark_unresolved(
+		2, # estimated length
+		encode => sub {
+			my ($self, $params)= @_;
+			defined $label->{start} or croak "Label $label is not marked";
+			my $ofs= $label->{start} - ($params->{start}+$params->{len});
+			(($ofs>>7) == ($ofs>>8)) or croak "Label too far, can only short-jump";
+			return pack('Cc', $op, $ofs);
+		}
+	);
+	return $self;
 }
 
 sub _encode_mov64_imm {

@@ -32,7 +32,7 @@ sub reference_assemble {
 	unless (-f $cache_file) {
 		# Can't pipe to nasm, because it tries to mmap the input, or something.
 		# So use clumsy temp files.
-		my $infile= File::Temp->new(TEMPLATE => 'asm-mov-XXXXXX', SUFFIX => '.asm')
+		my $infile= File::Temp->new(TEMPLATE => 'asm-XXXXXX', SUFFIX => '.asm')
 			or die "tmpfile: $!";
 		$infile->print("[bits 64]\n".$asm_source);
 		$infile->close;
