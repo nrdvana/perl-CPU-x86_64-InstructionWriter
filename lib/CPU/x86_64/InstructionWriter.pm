@@ -43,9 +43,10 @@ assigned a value after the instructions have been assembled.
 no warnings 'portable';
 
 
-my @byte_registers= qw( AH AL BH BL CH CL DH DL HSI LSI HDI LDI HSP LSP HBP LBP );
-my @word_registers= qw( AX BX CX DX SI DI SP BP );
-my @long_registers= qw( EAX EBX ECX EDX ESI EDI ESP EBP );
+my @byte_registers= qw( AH AL BH BL CH CL DH DL SPL BPL SIL DIL R8B R9B R10B R11B R12B R13B R14B R15B );
+my %byte_register_alias= ( map {; "R${_}L" => "R${_}B" } 8..15 );
+my @word_registers= qw( AX BX CX DX SI DI SP BP R8W R9W R10W R11W R12W R13W R14W R15W );
+my @long_registers= qw( EAX EBX ECX EDX ESI EDI ESP EBP R8D R9D R10D R11D R12D R13D R14D R15D );
 my @quad_registers= qw( RAX RBX RCX RDX RSI RDI RSP RBP R8 R9 R10 R11 R12 R13 R14 R15 RIP RFLAGS );
 my @registers= ( @byte_registers, @word_registers, @long_registers, @quad_registers );
 {
@@ -53,13 +54,9 @@ my @registers= ( @byte_registers, @word_registers, @long_registers, @quad_regist
 	no strict 'refs';
 	eval 'sub '.$_.' { \''.$_.'\' } 1' || croak $@
 		for @registers;
+	*{__PACKAGE__."::$_"}= *{__PACKAGE__."::$byte_register_alias{$_}"}
+		for keys %byte_register_alias;
 }
-
-my %byte_registers= map { $_ => 1 } @byte_registers;
-my %word_registers= map { $_ => 1 } @word_registers;
-my %long_registers= map { $_ => 1 } @long_registers;
-my %quad_registers= map { $_ => 1 } @quad_registers;
-my %registers= ( map { $_ => 1 } @registers );
 
 sub unknown   { CPU::x86_64::InstructionWriter::Unknown->new(name => $_[0]); }
 sub unknown8  { CPU::x86_64::InstructionWriter::Unknown->new(bits =>  8, name => $_[0]); }
@@ -363,19 +360,22 @@ sub jmp_if_parity_odd   { shift->_append_jmp_cond(11, shift) }
 
 =item jmp_cx_zero, jrcxz
 
-Jump to label if RCX register is zero
+Short-jump to label if RCX register is zero
 
 =item loop
 
-Jump to label if RCX register is nonzero
+Decrement RCX and short-jump to label if RCX register is nonzero
+(decrement of RCX does not change rFLAGS)
 
 =item loopz, loope
 
-Jump to label if RCX register is nonzero and zero flag (ZF) is set
+Decrement RCX and short-jump to label if RCX register is nonzero and zero flag (ZF) is set.
+(decrement of RCX does not change rFLAGS)
 
 =item loopnz, loopne
 
-Jump to label if RCX register is nonzero and zero flag (ZF) is not set
+Decrement RCX and short-jump to label if RCX register is nonzero and zero flag (ZF) is not set
+(decrement of RCX does not change rFLAGS)
 
 =cut
 
