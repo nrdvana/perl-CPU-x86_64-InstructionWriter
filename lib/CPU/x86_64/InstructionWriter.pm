@@ -58,6 +58,41 @@ my @registers= ( @byte_registers, @word_registers, @long_registers, @quad_regist
 		for keys %byte_register_alias;
 }
 
+# Map 64-bit register names to the numeric register number
+my %regnum64= (
+	RAX => 0, RCX => 1, RDX => 2, RBX => 3,
+	rax => 0, rcx => 1, rdx => 2, rbx => 3,
+	RSP => 4, RBP => 5, RSI => 6, RDI => 7,
+	rsp => 4, rbp => 5, rsi => 6, rdi => 7,
+	map { $_ => $_, "R$_" => $_, "r$_" => $_ } 0..15
+);
+
+my %regnum32= (
+	EAX => 0, ECX => 1, EDX => 2, EBX => 3,
+	eax => 0, ecx => 1, edx => 2, ebx => 3,
+	RSP => 4, RBP => 5, RSI => 6, RDI => 7,
+	rsp => 4, rbp => 5, rsi => 6, rdi => 7,
+	map { $_ => $_, "R${_}D" => $_, "r${_}d" => $_ } 0..15
+);
+
+my %regnum16= (
+	AX => 0, CX => 1, DX => 2, BX => 3,
+	ax => 0, cx => 1, dx => 2, bx => 3,
+	SP => 4, BP => 5, SI => 6, DI => 7,
+	sp => 4, bp => 5, si => 6, di => 7,
+	map { $_ => $_, "R${_}W" => $_, "r${_}w" => $_ } 0..15
+);
+
+my %regnum8= (
+	AL => 0, CL => 1, DL => 2, BL => 3,
+	al => 0, cl => 1, dl => 2, bl => 3,
+	map { $_ => $_, "R${_}B" => $_, "r${_}b" => $_, "R${_}L" => $_, "r${_}l" => $_ } 0..15
+);
+my %regnum8_high= (
+	AH => 4, CH => 5, DH => 6, BH => 7,
+	ah => 4, ch => 5, dh => 6, bh => 7,
+);
+
 sub unknown   { CPU::x86_64::InstructionWriter::Unknown->new(name => $_[0]); }
 sub unknown8  { CPU::x86_64::InstructionWriter::Unknown->new(bits =>  8, name => $_[0]); }
 sub unknown16 { CPU::x86_64::InstructionWriter::Unknown->new(bits => 16, name => $_[0]); }
@@ -80,6 +115,17 @@ has _buf                  => ( is => 'rw', default => sub { '' } );
 has _unresolved           => ( is => 'rw', default => sub { [] } );
 has labels                => ( is => 'rw', default => sub {; {} } );
 
+=head2 C<get_label()>, C<get_label($name)>
+
+Return a label object for the given name, or if no name is given, return an anonymous label.
+
+The label objects returned can be assigned a location within the instruction stream using L</mark>
+and used as thetarget for C<JMP> and C<JMP>-like instructions.  A label can also be used as a
+constant once all variable-length instructions have been L</resolve>d and once L</start_address>
+is defined.
+
+=cut
+
 sub get_label {
 	my ($self, $name)= @_;
 	my $labels= $self->labels;
@@ -87,11 +133,13 @@ sub get_label {
 	$labels->{$name} //= { name => $name };
 }
 
-=head2 mark
+=head2 C<mark($label_name)>, C<mark($undef_var)>, C<mark($label_ref)>
 
-Bind a named label to the current position in the instruction buffer.  This position will shift
-automatically if it follows instructions whose length is not yet known.  (as a consequence, you
-should not use the numeric offset of the label until the instruction stream has been "resolved")
+Bind a named label to the current position in the instruction buffer.  You can also pass a label
+reference from L</get_label>, or an undef variable which will be assigned a label.
+
+If the current position follows instructions of unknown length, the label will be processed as an
+unknown, and shift automatically as the instructions are resolved.
 
 =cut
 
@@ -150,45 +198,71 @@ sub nop {
 	$_[0];
 }
 
-# reg, reg
+=head2 MOV
+
+=over
+
+=item C<mov64_from_reg($dest_reg, $src_reg)>
+
+Copy second register to first register.  Copies full 64-bit value.
+
+=cut
+
 sub mov64_from_reg {
-	shift->_append_reg_reg(0x08, 0x89, $_[1], $_[0]);
+	$_[0]{_buf} .= $_[0]->_encode_op_reg_reg(0x08, 0x89,
+		$regnum64{$_[2]} // croak("$_[2] is not a 64-bit register"),
+		$regnum64{$_[1]} // croak("$_[1] is not a 64-bit register"),
+	);
+	$_[0];
 }
 
-# reg, base, disp, index, mult
-sub mov64_to_mem {
-	shift->_append_reg_mem(0x08, 0x89, @_);
-}
+=item C<mov64_to_mem($reg, $base_reg, $offset, $index_reg, $index_scale)>
 
-# reg, base, disp, index, mult
-sub mov64_from_mem {
-	shift->_append_reg_mem(0x08, 0x8B, @_);
-}
+Copy 64-bit value in register (first param) to a L</memory location>.
 
-# reg, immed
+=item C<mov64_from_mem($reg, $base_reg, $offset, $index_reg, $index_scale)>
+
+Copy 64-bit value at L</memory location> (second params) into register (first param).
+
+=cut
+
+sub mov64_to_mem   { shift->_append_op_reg64_mem(0x08, 0x89, @_); }
+sub mov64_from_mem { shift->_append_op_reg64_mem(0x08, 0x8B, @_); }
+
+sub mov32_to_mem   { shift->_append_op_reg32_mem(0, 0x89, @_); }
+sub mov32_from_mem { shift->_append_op_reg32_mem(0, 0x8B, @_); }
+
+sub mov16_to_mem   { shift->_append_op_reg16_mem(0, 0x89, @_); }
+sub mov16_from_mem { shift->_append_op_reg16_mem(0, 0x8B, @_); }
+
+sub mov8_to_mem    { shift->_append_op_reg8_mem(0, 0x88, @_); }
+sub mov8_from_mem  { shift->_append_op_reg8_mem(0, 0x8A, @_); }
+
+=item C<mov64_const($dest_reg, $constant)>
+
+Load a constant value into a 64-bit register.  Constant is sign-extended to 64-bits.
+
+=cut
+
 sub mov64_imm {
 	my ($self, $reg, $immed)= @_;
+	$reg= $regnum64{$reg} // croak("$reg is not a 64-bit register");
 	use integer;
 	if (ref $immed) {
-		my $value= $immed->value;
-		unless (defined $value) {
-			my $str;
-			return $self->_mark_unresolved(
-				10,
-				calc_size => sub {
-					$value= $immed->value
-						// croak "$immed is not a defined value";
-					$str= shift->_encode_mov64_imm($reg, $value);
-					length $str;
-				},
-				encode => sub { $str },
-			);
-		}
-		$immed= $value;
+		return $self->_mark_unresolved(
+			10,
+			encode => sub {
+				my $value= $immed->value
+					// croak "$immed is not a defined value";
+				shift->_encode_mov64_imm($reg, $value);
+			}
+		);
 	}
 	$self->{_buf} .= $self->_encode_mov64_imm($reg, $immed);
 	$self;
 }
+
+=back
 
 =head2 JMP
 
@@ -205,22 +279,20 @@ Unconditional jump to label (or 32-bit offset constant).
 =cut
 
 sub jmp {
+	@_ == 2 or croak "Wrong arguments";
+	$_[1]= $_[0]->get_label
+		unless defined $_[1];
 	my ($self, $label)= @_;
 	use integer;
 	$label= $self->get_label($label)
 		unless ref $label;
-	my $ofs;
-	my $short;
 	$self->_mark_unresolved(
 		2, # estimated length
-		calc_size => sub {
+		encode => sub {
 			my ($self, $params)= @_;
 			defined $label->{start} or croak "Label $label is not marked";
-			$ofs= $label->{start} - ($params->{start}+$params->{len});
-			$short= (($ofs>>7) == ($ofs>>8)); 
-			return $short? 2 : 5;
-		},
-		encode => sub {
+			my $ofs= $label->{start} - ($params->{start}+$params->{len});
+			my $short= (($ofs>>7) == ($ofs>>8)); 
 			# We rely on the calc_size() getting called before encode
 			return $short?
 				pack('Cc', 0xEB, $ofs)
@@ -230,7 +302,7 @@ sub jmp {
 	$self;
 }
 
-=item jmp_abs
+=item C<jmp_abs($reg)>
 
 Jump to the absolute address contained in a register.
 
@@ -238,18 +310,21 @@ Jump to the absolute address contained in a register.
 
 sub jmp_abs_reg {
 	my ($self, $reg)= @_;
-	$self->_append_reg_reg(0, 0xFF, 4, $reg);
+	$self->{_buf} .= $self->_encode_op_reg_reg(0, 0xFF, 4,
+		$regnum64{$reg} // croak("$reg is not a 64-bit register"),
+	);
+	$self;
 }
 
-=item jmp_abs_mem
+=item C<jmp_abs_mem($base_reg, $displacement, $index_reg, $scale)>
 
 Jump to the absolute address read from a memory location
 
 =cut
 
 sub jmp_abs_mem {
-	my ($self, $base_reg, $disp, $index_reg, $scale)= @_;
-	$self->_append_reg_mem(0, 0xFF, 4, $base_reg, $disp, $index_reg, $scale);
+	#my ($self, $base_reg, $disp, $index_reg, $scale)= @_;
+	shift->_append_op_reg64_mem(0, 0xFF, 4, @_);
 }
 
 =item jmp_if_eq, je, jz
@@ -401,7 +476,28 @@ sub syscall {
 	$_[0];
 }
 
-=head1 x86_64 INSTRUCTIONS
+=item mfence, lfence, sfence
+
+Parameterless instructions for memory access serialization.
+Forces memory operations before the fence to compete before memory operations after the fence.
+Lfence affects load operations, sfence affects store operations, and mfence affects both.
+
+=cut
+
+sub mfence {
+	$_[0]{_buf} .= "\x0F\xAE\xF0";
+	$_[0];
+}
+sub lfence {
+	$_[0]{_buf} .= "\x0F\xAE\xE8";
+	$_[0];
+}
+sub sfence {
+	$_[0]{_buf} .= "\x0F\xAE\xF8";
+	$_[0];
+}
+
+=head1 ENCODING x86_64 INSTRUCTIONS
 
 The AMD64 Architecture Programmer's Manual is a somewhat tedious read, so here's my notes:
 
@@ -410,25 +506,25 @@ Typical 2-arg 64-bit instruction:
 
 	REX: use extended registers and/or 64-bit operand sizes.
 		Not used for simple push/pop or handful of others
-	REX = 0x40 + (W:1 R:1 X:1 B:1)
+	REX = 0x40 + (W:1bit R:1bit X:1bit B:1bit)
 		REX.W = "wide" (64-bit operand size when set)
 		REX.R is 4th bit of ModRM.Reg
 		REX.X is 4th bit of SIB.Index
 		REX.B is 4th bit of ModRM.R/M or of SIB.Base or of ModRM.Reg depending on goofy rules
   
 	ModRM: mode/registers flags
-	ModRM = (Mod:2 Reg:3 R/M:3)
+	ModRM = (Mod:2bit Reg:3bit R/M:3bit)
 		ModRM.Mod indicates operands:
 			11b means ( Reg, R/M-reg-value )
 			00b means ( Reg, R/M-reg-addr ) unless second reg is SP/BP/R12/R13
 			01b means ( Reg, R/M-reg-addr + 8-bit disp ) unless second reg is SP/R12
 			10b means ( Reg, R/M-reg-addr + 32-bit disp ) unless second reg is SP/R12
 			
-			When using addrs, R/M=100b means include the SIB byte for exotic addressing options
+			When accessing mem, R/M=100b means include the SIB byte for exotic addressing options
 			In the 00b case, R/M=101b means use instruction pointer + 32-bit immed
 
 	SIB: optional byte for wild and crazy memory addressing; activate with ModRM.R/M = 0100b
-	SIB = (Scale:2 Index:3 Base:3)
+	SIB = (Scale:2bit Index:3bit Base:3bit)
 		address is (index_register << scale) + base_register (+immed per the ModRM.Mod bits)
 		* unless index_register = 0100b then no register is used.
 			(i.e. RSP cannot be used as an index register )
@@ -437,66 +533,135 @@ Typical 2-arg 64-bit instruction:
 
 =head1 UTILITY METHODS FOR ENCODING INSTRUCTIONS
 
-=head2 _append_reg_reg
+=head2 _encode_op_reg_reg
 
-Encode standard 64-bit instruction with REX prefix which refers only to registers.
+Encode standard instruction with REX prefix which refers only to registers.
 This skips all the memory addressing logic since it is only operating on registers,
 and always produces known-length encodings.
 
 =cut
 
-# For every register and alias, this maps to the 3-bit code identifying the register
-# in the 32-bit instruction set
-# TODO: I don't know enough about the 16-bit instruction set, and left them out.
-my %regnum= (
-	RAX => 0, RCX => 1, RDX => 2, RBX => 3,
-	RSP => 4, RBP => 5, RSI => 6, RDI => 7,
-	R0  => 0, R1  => 1, R2  => 2, R3  => 3,
-	R4  => 4, R5  => 5, R6  => 6, R7  => 7,
-	R8  => 0, R9  => 1, R10 => 2, R11 => 3,
-	R12 => 4, R13 => 5, R14 => 6, R15 => 7,
-	map { $_ => ($_&0x7) } 0..15
-);
-$regnum{lc $_}= $regnum{$_} for keys %regnum;
-
-# For every register and alias, this maps to the bit of the 64-bit instruction
-# that indicates whether it is a classic register or new register.
-# TODO: I don't know enough about the 16-bit instruction set, and left them out.
-my %regext= (
-	RAX => 0, RCX => 0, RDX => 0, RBX => 0,
-	RSP => 0, RBP => 0, RSI => 0, RDI => 0,
-	R0  => 0, R1  => 0, R2  => 0, R3  => 0,
-	R4  => 0, R5  => 0, R6  => 0, R7  => 0,
-	R8  => 1, R9  => 1, R10 => 1, R11 => 1,
-	R12 => 1, R13 => 1, R14 => 1, R15 => 1,
-	map { $_ => ($_>>3) } 0..15
-);
-$regext{lc $_}= $regext{$_} for keys %regext;
-
-sub _append_reg_reg {
+sub _encode_op_reg_reg {
 	my ($self, $rex, $opcode, $reg1, $reg2)= @_;
 	use integer;
-	
-	my $r1_num= $regnum{$reg1} // croak "$reg1 not a register";
-	$rex |= $regext{$reg1} << 2;
-	
-	my $r2_num= $regnum{$reg2} // croak "$reg2 not a register";
-	$rex |= $regext{$reg2};
-	
-	$self->{_buf} .= $rex?
-		pack('CCC', 0x40|$rex, $opcode, 0xC0 + ($r1_num << 3) + $r2_num)
-		: pack('CC', $opcode, 0xC0 + ($r1_num << 3) + $r2_num);
-	$self;
+	$rex |= (($reg1 & 8) >> 1) | (($reg2 & 8) >> 3);
+	return $rex?
+		pack('CCC', 0x40|$rex, $opcode, 0xC0 | (($reg1 & 7) << 3) | ($reg2 & 7))
+		: pack('CC', $opcode, 0xC0 | (($reg1 & 7) << 3) | ($reg2 & 7));
 }
 
-=head2 _append_reg_mem
+=head2 _append_op_reg64_mem
 
 Encode standard 64-bit instruction with REX prefix which addresses memory for one of its operands.
 The encoded length might not be resolved until later if an unknown displacement value was given.
 
 =cut
 
-my %regnum_not_sp= map { $_ => $regnum{$_} } grep { !/rsp|r4/i } keys %regnum;
+sub _append_op_reg64_mem {
+	@_ <= 8 or croak "Too many arguments";
+	my ($self, $rex, $opcode, $reg, $base_reg, $disp, $index_reg, $scale)= @_;
+	$reg= $regnum64{$reg} // croak "$reg is not a valid 64-bit register"
+		if defined $reg;
+	$base_reg= $regnum64{$base_reg} // croak "$base_reg is not a valid 64-bit register"
+		if defined $base_reg;
+	$index_reg= $regnum64{$index_reg} // croak "$index_reg is not a valid 64-bit register"
+		if defined $index_reg;
+	if (ref $disp) {
+		$self->_mark_unresolved(
+			7, # estimated length
+			encode => sub {
+				defined $disp->value or croak "Unresolved displacement $disp";
+				shift->_encode_op_reg_mem($rex, $opcode, $reg, $base_reg, $disp->value, $index_reg, $scale)
+			},
+		);
+	}
+	else {
+		$self->{_buf} .= $self->_encode_op_reg_mem($rex, $opcode, $reg, $base_reg, $disp, $index_reg, $scale);
+	}
+	$self;
+}
+
+sub _append_op_reg32_mem {
+	@_ <= 8 or croak "Too many arguments";
+	my ($self, $rex, $opcode, $reg, $base_reg, $disp, $index_reg, $scale)= @_;
+	$reg= $regnum32{$reg} // croak "$reg is not a valid 32-bit register"
+		if defined $reg;
+	$base_reg= $regnum32{$base_reg} // croak "$base_reg is not a valid 32-bit register"
+		if defined $base_reg;
+	$index_reg= $regnum32{$index_reg} // croak "$index_reg is not a valid 32-bit register"
+		if defined $index_reg;
+	if (ref $disp) {
+		$self->_mark_unresolved(
+			7, # estimated length
+			encode => sub {
+				defined $disp->value or croak "Unresolved displacement $disp";
+				shift->_encode_op_reg_mem($rex, $opcode, $reg, $base_reg, $disp->value, $index_reg, $scale)
+			},
+		);
+	}
+	else {
+		$self->{_buf} .= $self->_encode_op_reg_mem($rex, $opcode, $reg, $base_reg, $disp, $index_reg, $scale);
+	}
+	$self;
+}
+
+sub _append_op_reg16_mem {
+	@_ <= 8 or croak "Too many arguments";
+	my ($self, $rex, $opcode, $reg, $base_reg, $disp, $index_reg, $scale)= @_;
+	$reg= $regnum16{$reg} // croak "$reg is not a valid 16-bit register"
+		if defined $reg;
+	$base_reg= $regnum16{$base_reg} // croak "$base_reg is not a valid 16-bit register"
+		if defined $base_reg;
+	$index_reg= $regnum16{$index_reg} // croak "$index_reg is not a valid 16-bit register"
+		if defined $index_reg;
+	if (ref $disp) {
+		$self->_mark_unresolved(
+			7, # estimated length
+			encode => sub {
+				defined $disp->value or croak "Unresolved displacement $disp";
+				"\x66".shift->_encode_op_reg_mem($rex, $opcode, $reg, $base_reg, $disp->value, $index_reg, $scale)
+			},
+		);
+	}
+	else {
+		$self->{_buf} .= "\x66".$self->_encode_op_reg_mem($rex, $opcode, $reg, $base_reg, $disp, $index_reg, $scale);
+	}
+	$self;
+}
+
+sub _append_op_reg8_mem {
+	@_ <= 8 or croak "Too many arguments";
+	my ($self, $rex, $opcode, $reg, $base_reg, $disp, $index_reg, $scale)= @_;
+	$base_reg= $regnum8{$base_reg} // croak "$base_reg is not a valid 8-bit register"
+		if defined $base_reg;
+	$index_reg= $regnum8{$index_reg} // croak "$index_reg is not a valid 8-bit register"
+		if defined $index_reg;
+	$reg= $regnum8{$reg};
+	# special case for the "high byte" registers
+	if (!defined $reg) {
+		$reg= $regnum8_high{$_[3]} // croak "$_[3] is not a valid 8-bit register";
+		!$rex && ($base_reg//0) < 8 && ($index_reg//0) < 8
+			or croak "Cannot use $_[3] in instruction with REX prefix";
+	}
+	# special case for needing REX byte for SPL, BPL, DIL, and SIL
+	elsif ($reg > 3) {
+		$rex |= 0x40;
+	}
+	
+	if (ref $disp) {
+		$self->_mark_unresolved(
+			7, # estimated length
+			encode => sub {
+				defined $disp->value or croak "Unresolved displacement $disp";
+				shift->_encode_op_reg_mem($rex, $opcode, $reg, $base_reg, $disp->value, $index_reg, $scale)
+			},
+		);
+	}
+	else {
+		$self->{_buf} .= $self->_encode_op_reg_mem($rex, $opcode, $reg, $base_reg, $disp, $index_reg, $scale);
+	}
+	$self;
+}
 
 # scale values for the SIB byte
 my %SIB_scale= (
@@ -506,80 +671,56 @@ my %SIB_scale= (
 	8 => 0xC0
 );
 
-sub _append_reg_mem {
+sub _encode_op_reg_mem {
 	my ($self, $rex, $opcode, $reg, $base_reg, $disp, $index_reg, $scale)= @_;
 	use integer;
-	my $r1_num= $regnum{$reg} // croak "invalid register $reg";
-	$rex |= $regext{$reg} << 2;
-	
-	my ($base_num, $index_num);
-	my $disp_unknown;
-	
-	if (ref $disp) {
-		if (defined $disp->value) {
-			$disp= $disp->value;
-		} else {
-			# Just force it to 32-bit rather than making this instruction an unknown length
-			$disp->bits(32) unless $disp->bits;
-			$disp_unknown= $disp;
-			$disp= (-1 << ($disp->bits-1));
-		}
-	}
+	$rex |= ($reg & 8) >> 1;
 	
 	my $tail;
 	if (defined $base_reg) {
-		$base_num= $regnum{$base_reg} // croak "invalid base register $base_reg";
-		$rex |= $regext{$base_reg};
+		$rex |= ($base_reg & 8) >> 3;
 		
-		# RBP always gets mod_rm displacement to differentiate from Null base register
-		my ($mod_rm, $suffix)= !$disp? ( $base_num == 5? (0x40, "\0") : (0x00, '') )
-			: (($disp >>  7) == ($disp >>  8))? (0x40, chr($disp & 0xFF))
+		# RBP,R13 always gets mod_rm displacement to differentiate from Null base register
+		my ($mod_rm, $suffix)= !$disp? ( ($base_reg&7) == 5? (0x40, "\0") : (0x00, '') )
+			: (($disp >>  7) == ($disp >>  8))? (0x40, pack('c', $disp))
 			: (($disp >> 31) == ($disp >> 32))? (0x80, pack('V', $disp))
 			: croak "address displacement out of range: $disp";
 		
 		if (defined $index_reg) {
 			my $scale= $SIB_scale{$scale // 1} // croak "invalid index multiplier $scale";
-			my $index_num= $regnum_not_sp{$index_reg} // croak "invalid index register $index_reg";
-			$rex |= $regext{$index_reg} << 1;
-			$tail= pack('CC', $mod_rm | ($r1_num << 3) | 4, $scale | ($index_num << 3) | $base_num) . $suffix;
+			$index_reg != 4 or croak "RSP cannot be used as index register";
+			$rex |= ($index_reg & 8) >> 2;
+			$tail= pack('CC', $mod_rm | (($reg & 7) << 3) | 4, $scale | (($index_reg & 7) << 3) | ($base_reg & 7)) . $suffix;
 		}
-		# RSP always gets a SIB byte
-		elsif ($base_num == 4) {
-			$tail= pack('CC', $mod_rm | ($r1_num << 3) | 4, 0x24) . $suffix;
+		# RSP,R12 always gets a SIB byte
+		elsif (($base_reg&7) == 4) {
+			$tail= pack('CC', $mod_rm | (($reg & 7) << 3) | 4, 0x24) . $suffix;
 		}
 		else {
-			$tail= pack('C', $mod_rm | ($r1_num << 3) | $base_num) . $suffix;
+			# Null index register is encoded as RSP
+			$tail= pack('C', $mod_rm | (($reg & 7) << 3) | ($base_reg & 7)) . $suffix;
 		}
 	} else {
 		# Null base register is encoded as RBP + 32bit displacement
-		$base_num= 5;
+		
 		(($disp >> 31) == ($disp >> 32))
 			or croak "address displacement out of range: $disp";
 		
 		if (defined $index_reg) {
 			my $scale= $SIB_scale{$scale // 1} // croak "invalid index multiplier $scale";
-			my $index_num= $regnum_not_sp{$index_reg} // croak "invalid index register $index_reg";
-			$rex |= $regext{$index_reg} << 1;
-			$tail= pack('CCV', ($r1_num << 3) | 4, $scale | ($index_num << 3) | $base_num, $disp);
+			$index_reg != 4 or croak "RSP cannot be used as index register";
+			$rex |= ($index_reg & 8) >> 2;
+			$tail= pack('CCV', (($reg & 7) << 3) | 4, $scale | (($index_reg & 7) << 3) | 5, $disp);
 		}
 		else {
-			$tail= pack('CCV', ($r1_num << 3) | 4, 0x20 | $base_num, $disp);
+			# Null index register is encoded as RSP
+			$tail= pack('CCV', (($reg & 7) << 3) | 4, 0x25, $disp);
 		}
 	}
 	
-	$self->{_buf} .= $rex?
+	return $rex?
 		pack('CC', ($rex|0x40), $opcode) . $tail
 		: pack('C', $opcode) . $tail;
-	
-	if ($disp_unknown) {
-		if ($disp_unknown->bits <= 8) {
-			$self->_mark_unresolved(-1, value => $disp_unknown, encode => '_repack8' );
-		} else {
-			$self->_mark_unresolved(-4, value => $disp_unknown, encode => '_repack32' );
-		}
-	}
-	
-	return $self;
 }
 
 sub _repack32 {
@@ -597,24 +738,19 @@ or 6 bytes for jumps of 32-bit offsets.
 =cut
 
 sub _append_jmp_cond {
+	$_[2]= $_[0]->get_label unless defined $_[2];
+	
 	my ($self, $cond, $label)= @_;
 	use integer;
 	$label= $self->get_label($label)
 		unless ref $label;
-	my $ofs;
-	my $short;
 	$self->_mark_unresolved(
 		2, # estimated length
-		calc_size => sub {
+		encode => sub {
 			my ($self, $params)= @_;
 			defined $label->{start} or croak "Label $label is not marked";
-			$ofs= $label->{start} - ($params->{start}+$params->{len});
-			$short= (($ofs>>7) == ($ofs>>8));
-			#print "jmp ofs=$ofs short=$short\n";
-			return $short? 2 : 6;
-		},
-		encode => sub {
-			# We rely on the calc_size() getting called before encode
+			my $ofs= $label->{start} - ($params->{start}+$params->{len});
+			my $short= (($ofs>>7) == ($ofs>>8));
 			return $short?
 				pack('Cc', 0x70 + $cond, $ofs)
 				: pack('CCV', 0x0F, 0x80 + $cond, $ofs);
@@ -628,8 +764,6 @@ sub _append_jmp_cx {
 	use integer;
 	$label= $self->get_label($label)
 		unless ref $label;
-	my $ofs;
-	my $short;
 	$self->_mark_unresolved(
 		2, # estimated length
 		encode => sub {
@@ -645,22 +779,20 @@ sub _append_jmp_cx {
 
 sub _encode_mov64_imm {
 	my ($self, $reg, $immed)= @_;
-	my $dst_num= $regnum{$reg} // die "$reg is not a 64-bit register";
-	my $dst_ext= $regext{$reg};
 	use integer;
 	# If the number fits in 32-bits, encode as the classic instruction
 	if (!($immed >> 32)) {
-		return $dst_ext?
-			pack('CCL<', 0x41, 0xB8 + $dst_num, $immed)
-			: pack('CL<', 0xB8 + $dst_num, $immed);
+		return $reg > 7? # need REX byte if extended register
+			pack('CCL<', 0x41, 0xB8 + ($reg&7), $immed)
+			: pack('CL<', 0xB8 + $reg, $immed);
 	}
 	# If the number can sign-extend from 32-bits, encode as 32-bit sign-extend
 	elsif (($immed >> 32) == -1) {
-		return pack('CCCl<', 0x48 + $dst_ext, 0xC7, 0xC0 + $dst_num, $immed);
+		return pack('CCCl<', 0x48 | (($reg & 8) >> 3), 0xC7, 0xC0 + ($reg & 7), $immed);
 	}
 	# else encode as new 64-bit immediate
 	else {
-		return pack('CCQ<', 0x48 + $dst_ext, 0xB8 + $dst_num, $immed);
+		return pack('CCQ<', 0x48 | (($reg & 8) >> 3), 0xB8 + ($reg & 7), $immed);
 	}
 }
 
@@ -695,28 +827,18 @@ sub _resolve {
 		for my $p (@{ $self->_unresolved }) {
 			#print "Shifting $p by $ofs\n" if $ofs;
 			$p->{start} += $ofs if $ofs;
-			my $fn= $p->{calc_size}
+			my $fn= $p->{encode}
 				or next;
-			my $result= $self->$fn($p);
-			if ($result != $p->{len}) {
+			my $enc= $p->{encoded}= $self->$fn($p);
+			substr($self->{_buf}, $p->{start}, $p->{len})= $enc;
+			if (length($enc) != $p->{len}) {
 				#print "New size is $result\n";
 				$changed_len= 1;
-				$ofs += ($result - $p->{len});
-				$p->{len}= $result;
+				$ofs += (length($enc) - $p->{len});
+				$p->{len}= length($enc);
 			}
 		}
 	}
-	
-	# Then encode each instruction
-	my $len_check= length($self->{_buf});
-	for my $p (@{ $self->_unresolved }) {
-		my $fn= $p->{encode}
-			or next;
-		#print "replace $p->{start}, $p->{len} with $fn\n";
-		substr($self->{_buf}, $p->{start}, $p->{len})= $self->$fn($p);
-	}
-	$len_check == length($self->{_buf})
-		or die 'An instruction changed length during encode()';
 	
 	# Clear the list
 	@{ $self->_unresolved }= ();
