@@ -2,12 +2,13 @@ package TestASM;
 use strict;
 use warnings;
 use Exporter 'import';
+use Test::More;
 use IO::Handle;
 use File::Temp;
 use File::Spec::Functions 'splitpath', 'splitdir', 'catdir', 'catpath';
 use Digest::MD5 'md5_hex';
 
-our @EXPORT= qw( reference_assemble hex_diff have_nasm );
+our @EXPORT= qw( reference_assemble hex_diff have_nasm asm_ok );
 
 sub which_nasm {
 	return $ENV{NASM_PATH} if defined $ENV{NASM_PATH};
@@ -23,6 +24,41 @@ sub nasm_cache_file {
 	my @dirs= splitdir($path);
 	$dirs[-1]= 'nasm_cache';
 	catpath($vol, catdir(@dirs), $md5);
+}
+
+sub asm_ok {
+	my ($output, $asm_text, $message)= @_;
+	# Run a test as one giant block of asm
+	my $reference= reference_assemble(join("\n", @$asm_text));
+	# Compare it with what we built
+	if (join('', @$output) eq $reference) {
+		pass $message;
+	} else {
+		fail $message;
+		# Use a binary search to find which instructions failed
+		show_bad_instructions($output, $asm_text, 0, $#$output);
+	}
+}
+
+sub show_bad_instructions {
+	my ($output, $asm_text, $min, $max)= @_;
+	if ($max - $min < 8) {
+		for ($min..$max) {
+			my $out= $output->[$_];
+			my $ref= reference_assemble($asm_text->[$_]);
+			diag "$asm_text->[$_] was ".hex_dump($out)." but should be ".hex_dump($ref)
+				unless $out eq $ref;
+		}
+	}
+	else {
+		my $mid= int(($min+$max)/2);
+		my $out= join('', @{$output}[$min..$mid] );
+		my $ref= reference_assemble(join "\n", @{$asm_text}[$min..$mid]);
+		show_bad_instructions($output, $asm_text, $min, $mid) unless $out eq $ref;
+		$out= join('', @{$output}[($mid+1)..$max] );
+		$ref= reference_assemble(join "\n", @{$asm_text}[($mid+1)..$max]);
+		show_bad_instructions($output, $asm_text, $mid+1, $max) unless $out eq $ref;
+	}
 }
 
 sub reference_assemble {
@@ -46,6 +82,10 @@ sub reference_assemble {
 	open my $fh, '<:raw', $cache_file or die "open: $!";
 	local $/= undef;
 	scalar <$fh>;
+}
+
+sub hex_dump {
+	join(' ', map { sprintf("%02X", ord($_)) } split //, $_[0]);
 }
 
 sub hex_diff {

@@ -70,8 +70,8 @@ my %regnum64= (
 my %regnum32= (
 	EAX => 0, ECX => 1, EDX => 2, EBX => 3,
 	eax => 0, ecx => 1, edx => 2, ebx => 3,
-	RSP => 4, RBP => 5, RSI => 6, RDI => 7,
-	rsp => 4, rbp => 5, rsi => 6, rdi => 7,
+	ESP => 4, EBP => 5, ESI => 6, EDI => 7,
+	esp => 4, ebp => 5, esi => 6, edi => 7,
 	map { $_ => $_, "R${_}D" => $_, "r${_}d" => $_ } 0..15
 );
 
@@ -86,6 +86,8 @@ my %regnum16= (
 my %regnum8= (
 	AL => 0, CL => 1, DL => 2, BL => 3,
 	al => 0, cl => 1, dl => 2, bl => 3,
+	SPL => 4, BPL => 5, SIL => 6, DIL => 7,
+	spl => 4, bpl => 5, sil => 6, dil => 7,
 	map { $_ => $_, "R${_}B" => $_, "r${_}b" => $_, "R${_}L" => $_, "r${_}l" => $_ } 0..15
 );
 my %regnum8_high= (
@@ -197,72 +199,6 @@ sub nop {
 	$_[0]{_buf} .= "\x90";
 	$_[0];
 }
-
-=head2 MOV
-
-=over
-
-=item C<mov64_from_reg($dest_reg, $src_reg)>
-
-Copy second register to first register.  Copies full 64-bit value.
-
-=cut
-
-sub mov64_from_reg {
-	$_[0]{_buf} .= $_[0]->_encode_op_reg_reg(0x08, 0x89,
-		$regnum64{$_[2]} // croak("$_[2] is not a 64-bit register"),
-		$regnum64{$_[1]} // croak("$_[1] is not a 64-bit register"),
-	);
-	$_[0];
-}
-
-=item C<mov64_to_mem($reg, $base_reg, $offset, $index_reg, $index_scale)>
-
-Copy 64-bit value in register (first param) to a L</memory location>.
-
-=item C<mov64_from_mem($reg, $base_reg, $offset, $index_reg, $index_scale)>
-
-Copy 64-bit value at L</memory location> (second params) into register (first param).
-
-=cut
-
-sub mov64_to_mem   { shift->_append_op_reg64_mem(0x08, 0x89, @_); }
-sub mov64_from_mem { shift->_append_op_reg64_mem(0x08, 0x8B, @_); }
-
-sub mov32_to_mem   { shift->_append_op_reg32_mem(0, 0x89, @_); }
-sub mov32_from_mem { shift->_append_op_reg32_mem(0, 0x8B, @_); }
-
-sub mov16_to_mem   { shift->_append_op_reg16_mem(0, 0x89, @_); }
-sub mov16_from_mem { shift->_append_op_reg16_mem(0, 0x8B, @_); }
-
-sub mov8_to_mem    { shift->_append_op_reg8_mem(0, 0x88, @_); }
-sub mov8_from_mem  { shift->_append_op_reg8_mem(0, 0x8A, @_); }
-
-=item C<mov64_const($dest_reg, $constant)>
-
-Load a constant value into a 64-bit register.  Constant is sign-extended to 64-bits.
-
-=cut
-
-sub mov64_imm {
-	my ($self, $reg, $immed)= @_;
-	$reg= $regnum64{$reg} // croak("$reg is not a 64-bit register");
-	use integer;
-	if (ref $immed) {
-		return $self->_mark_unresolved(
-			10,
-			encode => sub {
-				my $value= $immed->value
-					// croak "$immed is not a defined value";
-				shift->_encode_mov64_imm($reg, $value);
-			}
-		);
-	}
-	$self->{_buf} .= $self->_encode_mov64_imm($reg, $immed);
-	$self;
-}
-
-=back
 
 =head2 JMP
 
@@ -452,6 +388,8 @@ Decrement RCX and short-jump to label if RCX register is nonzero and zero flag (
 Decrement RCX and short-jump to label if RCX register is nonzero and zero flag (ZF) is not set
 (decrement of RCX does not change rFLAGS)
 
+=back
+
 =cut
 
 sub jmp_cx_zero { shift->_append_jmp_cx(0xE3, shift) }
@@ -465,7 +403,284 @@ sub loopz       { shift->_append_jmp_cx(0xE1, shift) }
 sub loopnz      { shift->_append_jmp_cx(0xE0, shift) }
 *loopne= *loopnz;
 
-=item syscall
+=head2 MOV
+
+=over
+
+=item C<mov64_reg($dest_reg, $src_reg)>
+
+Copy second register to first register.  Copies full 64-bit value.
+
+=cut
+
+sub mov64_reg { shift->_append_op64_reg_reg(0x89, $_[1], $_[0]) }
+
+=item C<mov64_to_mem($reg, $base_reg, $offset, $index_reg, $index_scale)>
+
+Copy 64-bit value in register (first param) to a L</memory location>.
+
+=item C<mov64_from_mem($reg, $base_reg, $offset, $index_reg, $index_scale)>
+
+Copy 64-bit value at L</memory location> (second params) into register (first param).
+
+=cut
+
+sub mov64_to_mem   { shift->_append_op_reg64_mem(8, 0x89, @_); }
+sub mov32_to_mem   { shift->_append_op_reg32_mem(0, 0x89, @_); }
+sub mov16_to_mem   { shift->_append_op_reg16_mem(0, 0x89, @_); }
+sub mov8_to_mem    { shift->_append_op_reg8_mem(0, 0x88, @_); }
+
+sub mov64_mem { shift->_append_op_reg64_mem(8, 0x8B, @_); }
+sub mov32_mem { shift->_append_op_reg32_mem(0, 0x8B, @_); }
+sub mov16_mem { shift->_append_op_reg16_mem(0, 0x8B, @_); }
+sub mov8_mem  { shift->_append_op_reg8_mem(0, 0x8A, @_); }
+
+=item C<mov64_const($dest_reg, $constant)>
+
+Load a constant value into a 64-bit register.  Constant is sign-extended to 64-bits.
+
+=cut
+
+sub mov64_const {
+	my ($self, $reg, $immed)= @_;
+	$reg= $regnum64{$reg} // croak("$reg is not a 64-bit register");
+	$self->_append_possible_unknown('_encode_mov64_imm', [$reg, $immed], 1, 10);
+}
+sub _encode_mov64_imm {
+	my ($self, $reg, $immed)= @_;
+	use integer;
+	# If the number fits in 32-bits, encode as the classic instruction
+	if (!($immed >> 32)) {
+		return $reg > 7? # need REX byte if extended register
+			pack('CCL<', 0x41, 0xB8 + ($reg&7), $immed)
+			: pack('CL<', 0xB8 + $reg, $immed);
+	}
+	# If the number can sign-extend from 32-bits, encode as 32-bit sign-extend
+	elsif (($immed >> 32) == -1) {
+		return pack('CCCl<', 0x48 | (($reg & 8) >> 3), 0xC7, 0xC0 + ($reg & 7), $immed);
+	}
+	# else encode as new 64-bit immediate
+	else {
+		return pack('CCQ<', 0x48 | (($reg & 8) >> 3), 0xB8 + ($reg & 7), $immed);
+	}
+}
+sub mov32_const {
+	my ($self, $reg, $immed)= @_;
+	$reg= $regnum32{$reg} // croak("$reg is not a 32-bit register");
+	$self->{_buf} .= "\x41" if $reg > 7;
+	$self->{_buf} .= pack('C' , 0xB8 | ($reg & 7));
+	$self->_append_possible_unknown(sub { pack('V', $_[1]) }, [$immed], 0, 4);
+}
+sub mov16_const {
+	my ($self, $reg, $immed)= @_;
+	$reg= $regnum16{$reg} // croak("$reg is not a 16-bit register");
+	$self->{_buf} .= "\x66";
+	$self->{_buf} .= "\x41" if $reg > 7;
+	$self->{_buf} .= pack('C', 0xB8 | ($reg & 7));
+	$self->_append_possible_unknown(sub { pack('v', $_[1]) }, [$immed], 0, 2);
+}
+sub mov8_const {
+	my ($self, $reg, $immed)= @_;
+	$reg= $regnum8{$reg};
+	# Special case for the high-byte registers available without the REX prefix
+	if (!defined $reg) {
+		$reg= $regnum8_high{$_[1]} // croak("$_[1] is not a 8-bit register");
+	} else {
+		$self->{_buf} .= pack('C', 0x40|(($reg&8)>>3)) if $reg > 3;
+	}
+	$self->{_buf} .= pack('C', 0xB0 | ($reg & 7));
+	$self->_append_possible_unknown(sub { pack('C', $_[1]&0xFF) }, [$immed], 0, 1);
+}
+
+sub mov64_const_to_mem { shift->_append_op64_const_mem(0xC7, 0, @_) }
+sub mov32_const_to_mem { shift->_append_op32_const_mem(0xC7, 0, @_) }
+sub mov16_const_to_mem { shift->_append_op16_const_mem(0xC7, 0, @_) }
+sub mov8_const_to_mem  { shift->_append_op8_const_mem (0xC6, 0, @_) }
+
+=back
+
+=head2 ADD
+
+=over
+
+=item C<add64_reg(reg64, reg64)>
+
+=item C<add64_mem(reg64, base_reg64, displacement, index_reg64, scale)>
+
+=item C<add64_to_mem(reg64, base_reg64, displacement, index_reg64, scale)>
+
+=item C<add64_const(reg64, const)>
+
+=item C<add64_const_to_mem(const, base_reg64, displacement, index_reg64, scale)>
+
+=back
+
+=cut
+
+sub add64_reg { shift->_append_op64_reg_reg(0x01, $_[2], $_[1]) }
+sub add32_reg { shift->_append_op32_reg_reg(0x01, $_[2], $_[1]) }
+sub add16_reg { shift->_append_op16_reg_reg(0x01, $_[2], $_[1]) }
+sub add8_reg  { shift->_append_op8_reg_reg (0x00, $_[2], $_[1]) }
+
+sub add64_mem { shift->_append_op_reg64_mem(8, 0x03, @_); }
+sub add32_mem { shift->_append_op_reg32_mem(0, 0x03, @_); }
+sub add16_mem { shift->_append_op_reg16_mem(0, 0x03, @_); }
+sub add8_mem  { shift->_append_op_reg8_mem (0, 0x02, @_); }
+
+sub add64_to_mem { shift->_append_op_reg64_mem(8, 0x01, @_); }
+sub add32_to_mem { shift->_append_op_reg32_mem(0, 0x01, @_); }
+sub add16_to_mem { shift->_append_op_reg16_mem(0, 0x01, @_); }
+sub add8_to_mem  { shift->_append_op_reg8_mem (0, 0x00, @_); }
+
+sub add64_const {
+	my ($self, $reg, $immed)= @_;
+	$reg= $regnum64{$reg} // croak("$reg is not a 64-bit register");
+	$self->_append_possible_unknown('_encode_add64_imm', [ $reg, $immed ], 1, 7);
+}
+sub add32_const {
+	my ($self, $reg, $immed)= @_;
+	$reg= $regnum32{$reg} // croak("$reg is not a 32-bit register");
+	$self->_append_possible_unknown('_encode_add32_imm', [ $reg, $immed ], 1, 7);
+}
+sub add16_const {
+	my ($self, $reg, $immed)= @_;
+	$reg= $regnum16{$reg} // croak("$reg is not a 16-bit register");
+	$self->_append_possible_unknown('_encode_add16_imm', [ $reg, $immed ], 1, 8);
+}
+sub add8_const {
+	my ($self, $reg, $immed)= @_;
+	$reg= $regnum8{$reg} // croak("$reg is not a 8-bit register");
+	$self->_append_possible_unknown('_encode_add8_imm', [ $reg, $immed ], 1, 3);
+}
+sub _encode_add64_imm {
+	my ($self, $reg, $value)= @_;
+	use integer;
+	my $rex= 0x48 | (($reg & 8)>>1);
+	(($value >> 7) == ($value >> 8))?
+		pack('CCCc', $rex, 0x83, 0xC0 | ($reg & 7), $value)
+		: (($value >> 31) == ($value >> 32))? (
+			# Ops on AX get encoded as a special instruction
+			$reg? pack('CCCV', $rex, 0x81, 0xC0 | ($reg & 7), $value)
+				: pack('CCV', $rex, 0x05, $value)
+		)
+		# 64-bit add only supports 32-bit sign-extend immediate
+		: croak "$value is wider than 32-bit";
+}
+sub _encode_add32_imm {
+	my ($self, $reg, $value)= @_;
+	use integer;
+	my $rex= (($reg & 8)>>1);
+	(($value >> 7) == ($value >> 8))?
+		(	$rex? pack('CCCc', 0x40|$rex, 0x83, 0xC0 | ($reg & 7), $value)
+				: pack('CCc', 0x83, 0xC0 | ($reg & 7), $value)
+		)
+		: (($value >> 32) == ($value >> 33))? (
+			# Ops on AX get encoded as a special instruction
+			$rex? pack('CCCV', $rex, 0x81, 0xC0 | ($reg & 7), $value)
+			: $reg? pack('CCV', 0x81, 0xC0 | ($reg & 7), $value)
+			: pack('CV', 0x05, $value)
+		)
+		: croak "$value is wider than 32-bit";
+}
+sub _encode_add16_imm {
+	my ($self, $reg, $value)= @_;
+	use integer;
+	my $rex= (($reg & 8)>>1);
+	(($value >> 7) == ($value >> 8))?
+		(	$rex? pack('CCCc', 0x66, 0x40|$rex, 0x83, 0xC0 | ($reg & 7), $value)
+				: pack('CCc', 0x66, 0x83, 0xC0 | ($reg & 7), $value)
+		)
+		: (($value >> 16) == ($value >> 17))? (
+			# Ops on AX get encoded as a special instruction
+			$rex? pack('CCCCv', 0x66, $rex, 0x81, 0xC0 | ($reg & 7), $value)
+			: $reg? pack('CCCv', 0x66, 0x81, 0xC0 | ($reg & 7), $value)
+			: pack('Cv', 0x66, 0x05, $value)
+		)
+		: croak "$value is wider than 16-bit";
+}
+sub _encode_add8_imm {
+	my ($self, $reg, $value)= @_;
+	use integer;
+	my $rex= (($reg & 8)>>1);
+	(($value >> 8) == ($value >> 9))?
+		(	$rex? pack('CCCc', 0x40|$rex, 0x80, 0xC0 | ($reg & 7), $value)
+			: $reg? pack('CCc', 0x80, 0xC0 | ($reg & 7), $value)
+			: pack('Cc', 0x04, $value)
+		)
+		: croak "$value is wider than signed 8-bit";
+}
+
+sub add64_const_to_mem {
+	my ($self, $value, $base_reg, $disp, $index_reg, $scale)= @_;
+	$base_reg= ($regnum64{$base_reg} // croak "$base_reg is not a 64-bit register")
+		if defined $base_reg;
+	$index_reg= ($regnum64{$base_reg} // croak "$index_reg is not a 64-bit register")
+		if defined $index_reg;
+	$self->_append_possible_unknown('_encode_add64_const_mem', [ $value, $base_reg, $disp, $index_reg, $scale ], 0, defined $disp? 9:12);
+}
+sub _encode_add64_const_mem {
+	my ($self, $value, $base_reg, $disp, $index_reg, $scale)= @_;
+	use integer;
+	(($value >> 7) == ($value >> 8))?
+		$self->_encode_op_reg_mem(8, 0x83, 0, $base_reg, $disp, $index_reg, $scale).pack('c',$value)
+		: (($value >> 31) == ($value >> 32))?
+			$self->_encode_op_reg_mem(8, 0x81, 0, $base_reg, $disp, $index_reg, $scale).pack('V', $value)
+		: croak "$value is wider than 32-bit";
+}
+
+sub add32_const_to_mem {
+	my ($self, $value, $base_reg, $disp, $index_reg, $scale)= @_;
+	$base_reg= ($regnum64{$base_reg} // croak "$base_reg is not a 64-bit register")
+		if defined $base_reg;
+	$index_reg= ($regnum64{$base_reg} // croak "$index_reg is not a 64-bit register")
+		if defined $index_reg;
+	$self->_append_possible_unknown('_encode_add32_const_mem', [ $value, $base_reg, $disp, $index_reg, $scale ], 0, defined $disp? 12:8);
+}
+sub _encode_add32_const_mem {
+	my ($self, $value, $base_reg, $disp, $index_reg, $scale)= @_;
+	use integer;
+	(($value >> 7) == ($value >> 8))?
+		$self->_encode_op_reg_mem(0, 0x83, 0, $base_reg, $disp, $index_reg, $scale).pack('c',$value)
+		: (($value >> 32) == ($value >> 33))?
+			$self->_encode_op_reg_mem(0, 0x81, 0, $base_reg, $disp, $index_reg, $scale).pack('V', $value)
+		: croak "$value is wider than 32-bit";
+}
+
+sub add16_const_to_mem {
+	my ($self, $value, $base_reg, $disp, $index_reg, $scale)= @_;
+	$base_reg= ($regnum64{$base_reg} // croak "$base_reg is not a 64-bit register")
+		if defined $base_reg;
+	$index_reg= ($regnum64{$base_reg} // croak "$index_reg is not a 64-bit register")
+		if defined $index_reg;
+	$self->{_buf} .= "\x66";
+	$self->_append_possible_unknown('_encode_add16_const_mem', [ $value, $base_reg, $disp, $index_reg, $scale ], 0, defined $disp? 10:6);
+}
+sub _encode_add16_const_mem {
+	my ($self, $value, $base_reg, $disp, $index_reg, $scale)= @_;
+	use integer;
+	(($value >> 7) == ($value >> 8))?
+		$self->_encode_op_reg_mem(0, 0x83, 0, $base_reg, $disp, $index_reg, $scale).pack('c',$value)
+		: (($value >> 16) == ($value >> 17))?
+			$self->_encode_op_reg_mem(0, 0x81, 0, $base_reg, $disp, $index_reg, $scale).pack('v', $value)
+		: croak "$value is wider than 16-bit";
+}
+
+sub add8_const_to_mem {
+	my ($self, $value, $base_reg, $disp, $index_reg, $scale)= @_;
+	$base_reg= ($regnum64{$base_reg} // croak "$base_reg is not a 64-bit register")
+		if defined $base_reg;
+	$index_reg= ($regnum64{$base_reg} // croak "$index_reg is not a 64-bit register")
+		if defined $index_reg;
+	$self->_append_possible_unknown('_encode_add8_const_mem', [ $value, $base_reg, $disp, $index_reg, $scale ], 0, defined $disp? 10:6);
+}
+sub _encode_add8_const_mem {
+	my ($self, $value, $base_reg, $disp, $index_reg, $scale)= @_;
+	use integer;
+	(($value >> 8) == ($value >> 9)) or croak "$value is wider than 8 bit";
+	$self->_encode_op_reg_mem(0, 0x80, 0, $base_reg, $disp, $index_reg, $scale).pack('c',$value);
+}
+
+=head2 syscall
 
 Syscall instruction, takes no arguments.  (params are stored in pre-defined registers)
 
@@ -476,7 +691,7 @@ sub syscall {
 	$_[0];
 }
 
-=item mfence, lfence, sfence
+=head2 mfence, lfence, sfence
 
 Parameterless instructions for memory access serialization.
 Forces memory operations before the fence to compete before memory operations after the fence.
@@ -550,6 +765,64 @@ sub _encode_op_reg_reg {
 		: pack('CC', $opcode, 0xC0 | (($reg1 & 7) << 3) | ($reg2 & 7));
 }
 
+sub _append_op64_reg_reg {
+	my ($self, $opcode, $reg1, $reg2)= @_;
+	$reg1= ($regnum64{$reg1} // croak("$reg1 is not a 64-bit register"));
+	$reg2= ($regnum64{$reg2} // croak("$reg2 is not a 64-bit register"));
+	use integer;
+	$self->{_buf} .= pack('CCC',
+		0x48 | (($reg1 & 8) >> 1) | (($reg2 & 8) >> 3),
+		$opcode, 0xC0 | (($reg1 & 7) << 3) | ($reg2 & 7));
+	$self;
+}
+sub _append_op32_reg_reg {
+	my ($self, $opcode, $reg1, $reg2)= @_;
+	$reg1= ($regnum32{$reg1} // croak("$reg1 is not a 32-bit register"));
+	$reg2= ($regnum32{$reg2} // croak("$reg2 is not a 32-bit register"));
+	use integer;
+	my $rex= (($reg1 & 8) >> 1) | (($reg2 & 8) >> 3);
+	$self->{_buf} .= $rex?
+		pack('CCC', 0x40|$rex, $opcode, 0xC0 | (($reg1 & 7) << 3) | ($reg2 & 7))
+		: pack('CC', $opcode, 0xC0 | (($reg1 & 7) << 3) | ($reg2 & 7));
+	$self;
+}
+sub _append_op16_reg_reg {
+	my ($self, $opcode, $reg1, $reg2)= @_;
+	$reg1= ($regnum16{$reg1} // croak("$reg1 is not a 16-bit register"));
+	$reg2= ($regnum16{$reg2} // croak("$reg2 is not a 16-bit register"));
+	use integer;
+	my $rex= (($reg1 & 8) >> 1) | (($reg2 & 8) >> 3);
+	$self->{_buf} .= $rex?
+		pack('CCCC', 0x66, 0x40|$rex, $opcode, 0xC0 | (($reg1 & 7) << 3) | ($reg2 & 7))
+		: pack('CCC', 0x66, $opcode, 0xC0 | (($reg1 & 7) << 3) | ($reg2 & 7));
+	$self;
+}
+sub _append_op8_reg_reg {
+	my ($self, $opcode, $reg1, $reg2)= @_;
+	use integer;
+	$reg1= $regnum8{$reg1};
+	$reg2= $regnum8{$reg2};
+	# special case for the "high byte" registers.  They can't be used in an
+	# instruction that uses the REX prefix.
+	if (!defined $reg1 || !defined $reg2) {
+		my $old_reg1= $reg1;
+		my $old_reg2= $reg2;
+		$reg1= $regnum8_high{$_[2]} // croak "$_[2] is not a valid 8-bit register";
+		$reg2= $regnum8_high{$_[3]} // croak "$_[3] is not a valid 8-bit register";
+		if (($old_reg1 && $old_reg1 > 3) || ($old_reg2 && $old_reg2 > 3)) {
+			croak "Can't combine $_[2] with $_[3] in same instruction"; 
+		}
+		$self->{_buf} .= pack('CC', $opcode, 0xC0 | ($reg1 << 3) | $reg2);
+	}
+	else {
+		my $rex= (($reg1 & 8) >> 1) | (($reg2 & 8) >> 3);
+		$self->{_buf} .= $rex?
+			pack('CCC', 0x40|$rex, $opcode, 0xC0 | (($reg1 & 7) << 3) | ($reg2 & 7))
+			: pack('CC', $opcode, 0xC0 | ($reg1 << 3) | $reg2);
+	}
+	$self;
+}
+
 =head2 _append_op_reg64_mem
 
 Encode standard 64-bit instruction with REX prefix which addresses memory for one of its operands.
@@ -566,18 +839,7 @@ sub _append_op_reg64_mem {
 		if defined $base_reg;
 	$index_reg= $regnum64{$index_reg} // croak "$index_reg is not a valid 64-bit register"
 		if defined $index_reg;
-	if (ref $disp) {
-		$self->_mark_unresolved(
-			7, # estimated length
-			encode => sub {
-				defined $disp->value or croak "Unresolved displacement $disp";
-				shift->_encode_op_reg_mem($rex, $opcode, $reg, $base_reg, $disp->value, $index_reg, $scale)
-			},
-		);
-	}
-	else {
-		$self->{_buf} .= $self->_encode_op_reg_mem($rex, $opcode, $reg, $base_reg, $disp, $index_reg, $scale);
-	}
+	$self->_append_possible_unknown('_encode_op_reg_mem', [$rex, $opcode, $reg, $base_reg, $disp, $index_reg, $scale], 4, 7);
 	$self;
 }
 
@@ -586,23 +848,11 @@ sub _append_op_reg32_mem {
 	my ($self, $rex, $opcode, $reg, $base_reg, $disp, $index_reg, $scale)= @_;
 	$reg= $regnum32{$reg} // croak "$reg is not a valid 32-bit register"
 		if defined $reg;
-	$base_reg= $regnum32{$base_reg} // croak "$base_reg is not a valid 32-bit register"
+	$base_reg= $regnum64{$base_reg} // croak "$base_reg is not a valid 64-bit register"
 		if defined $base_reg;
-	$index_reg= $regnum32{$index_reg} // croak "$index_reg is not a valid 32-bit register"
+	$index_reg= $regnum64{$index_reg} // croak "$index_reg is not a valid 64-bit register"
 		if defined $index_reg;
-	if (ref $disp) {
-		$self->_mark_unresolved(
-			7, # estimated length
-			encode => sub {
-				defined $disp->value or croak "Unresolved displacement $disp";
-				shift->_encode_op_reg_mem($rex, $opcode, $reg, $base_reg, $disp->value, $index_reg, $scale)
-			},
-		);
-	}
-	else {
-		$self->{_buf} .= $self->_encode_op_reg_mem($rex, $opcode, $reg, $base_reg, $disp, $index_reg, $scale);
-	}
-	$self;
+	$self->_append_possible_unknown('_encode_op_reg_mem', [$rex, $opcode, $reg, $base_reg, $disp, $index_reg, $scale], 4, 7);
 }
 
 sub _append_op_reg16_mem {
@@ -610,31 +860,20 @@ sub _append_op_reg16_mem {
 	my ($self, $rex, $opcode, $reg, $base_reg, $disp, $index_reg, $scale)= @_;
 	$reg= $regnum16{$reg} // croak "$reg is not a valid 16-bit register"
 		if defined $reg;
-	$base_reg= $regnum16{$base_reg} // croak "$base_reg is not a valid 16-bit register"
+	$base_reg= $regnum64{$base_reg} // croak "$base_reg is not a valid 64-bit register"
 		if defined $base_reg;
-	$index_reg= $regnum16{$index_reg} // croak "$index_reg is not a valid 16-bit register"
+	$index_reg= $regnum64{$index_reg} // croak "$index_reg is not a valid 64-bit register"
 		if defined $index_reg;
-	if (ref $disp) {
-		$self->_mark_unresolved(
-			7, # estimated length
-			encode => sub {
-				defined $disp->value or croak "Unresolved displacement $disp";
-				"\x66".shift->_encode_op_reg_mem($rex, $opcode, $reg, $base_reg, $disp->value, $index_reg, $scale)
-			},
-		);
-	}
-	else {
-		$self->{_buf} .= "\x66".$self->_encode_op_reg_mem($rex, $opcode, $reg, $base_reg, $disp, $index_reg, $scale);
-	}
-	$self;
+	$self->{_buf} .= "\x66";
+	$self->_append_possible_unknown('_encode_op_reg_mem', [$rex, $opcode, $reg, $base_reg, $disp, $index_reg, $scale], 4, 7);
 }
 
 sub _append_op_reg8_mem {
 	@_ <= 8 or croak "Too many arguments";
 	my ($self, $rex, $opcode, $reg, $base_reg, $disp, $index_reg, $scale)= @_;
-	$base_reg= $regnum8{$base_reg} // croak "$base_reg is not a valid 8-bit register"
+	$base_reg= $regnum64{$base_reg} // croak "$base_reg is not a valid 64-bit register"
 		if defined $base_reg;
-	$index_reg= $regnum8{$index_reg} // croak "$index_reg is not a valid 8-bit register"
+	$index_reg= $regnum64{$index_reg} // croak "$index_reg is not a valid 64-bit register"
 		if defined $index_reg;
 	$reg= $regnum8{$reg};
 	# special case for the "high byte" registers
@@ -647,20 +886,7 @@ sub _append_op_reg8_mem {
 	elsif ($reg > 3) {
 		$rex |= 0x40;
 	}
-	
-	if (ref $disp) {
-		$self->_mark_unresolved(
-			7, # estimated length
-			encode => sub {
-				defined $disp->value or croak "Unresolved displacement $disp";
-				shift->_encode_op_reg_mem($rex, $opcode, $reg, $base_reg, $disp->value, $index_reg, $scale)
-			},
-		);
-	}
-	else {
-		$self->{_buf} .= $self->_encode_op_reg_mem($rex, $opcode, $reg, $base_reg, $disp, $index_reg, $scale);
-	}
-	$self;
+	$self->_append_possible_unknown('_encode_op_reg_mem', [$rex, $opcode, $reg, $base_reg, $disp, $index_reg, $scale], 4, 7);
 }
 
 # scale values for the SIB byte
@@ -672,7 +898,7 @@ my %SIB_scale= (
 );
 
 sub _encode_op_reg_mem {
-	my ($self, $rex, $opcode, $reg, $base_reg, $disp, $index_reg, $scale)= @_;
+	my ($self, $rex, $opcode, $reg, $base_reg, $disp, $index_reg, $scale, $immed_pack, $immed)= @_;
 	use integer;
 	$rex |= ($reg & 8) >> 1;
 	
@@ -717,6 +943,8 @@ sub _encode_op_reg_mem {
 			$tail= pack('CCV', (($reg & 7) << 3) | 4, 0x25, $disp);
 		}
 	}
+	$tail .= pack($immed_pack, $immed)
+		if defined $immed;
 	
 	return $rex?
 		pack('CC', ($rex|0x40), $opcode) . $tail
@@ -728,6 +956,60 @@ sub _repack32 {
 	my $v= $params->{value}->value;
 	defined $v or croak "Placeholder $params->{value} has not been assigned";
 	return pack('V', $v);
+}
+
+sub _append_op64_const_to_mem {
+	my ($self, $opcode, $reg, $immed, $base_reg, $disp, $index_reg, $scale)= @_;
+	$base_reg= $regnum64{$base_reg} // croak "$base_reg is not a valid 64-bit register"
+		if defined $base_reg;
+	$index_reg= $regnum64{$index_reg} // croak "$index_reg is not a valid 64-bit register"
+		if defined $index_reg;
+	$self->_append_possible_unknown(
+		'_encode_op_reg_mem',
+		[ 8, $opcode, $reg, $base_reg, $disp, $index_reg, $scale, 'V', $immed ],
+		4, 8, # indicies of might-be-unknown args
+		defined $disp? 11 : 7 # estimated length
+	);
+}
+sub _append_op32_const_to_mem {
+	my ($self, $opcode, $reg, $immed, $base_reg, $disp, $index_reg, $scale)= @_;
+	$base_reg= $regnum64{$base_reg} // croak "$base_reg is not a valid 64-bit register"
+		if defined $base_reg;
+	$index_reg= $regnum64{$index_reg} // croak "$index_reg is not a valid 64-bit register"
+		if defined $index_reg;
+	$self->_append_possible_unknown(
+		'_encode_op_reg_mem',
+		[ 0, $opcode, $reg, $base_reg, $disp, $index_reg, $scale, 'V', $immed ],
+		4, 8, # indicies of might-be-unknown args
+		defined $disp? 11 : 7 # estimated length
+	);
+}
+sub _append_op16_const_to_mem {
+	my ($self, $opcode, $opcode_reg, $immed, $base_reg, $disp, $index_reg, $scale)= @_;
+	$base_reg= $regnum64{$base_reg} // croak "$base_reg is not a valid 64-bit register"
+		if defined $base_reg;
+	$index_reg= $regnum64{$index_reg} // croak "$index_reg is not a valid 64-bit register"
+		if defined $index_reg;
+	$self->{_buf} .= "\x66";
+	$self->_append_possible_unknown(
+		'_encode_op_reg_mem',
+		[ 0, $opcode, $opcode_reg, $base_reg, $disp, $index_reg, $scale, 'v', $immed ],
+		4, 8, # indicies of might-be-unknown args
+		defined $disp? 9 : 5 # estimated length
+	);
+}
+sub _append_op8_const_to_mem {
+	my ($self, $opcode, $opcode_reg, $immed, $base_reg, $disp, $index_reg, $scale)= @_;
+	$base_reg= $regnum64{$base_reg} // croak "$base_reg is not a valid 64-bit register"
+		if defined $base_reg;
+	$index_reg= $regnum64{$index_reg} // croak "$index_reg is not a valid 64-bit register"
+		if defined $index_reg;
+	$self->_append_possible_unknown(
+		'_encode_op_reg_mem',
+		[ 0, $opcode, $opcode_reg, $base_reg, $disp, $index_reg, $scale, 'c', $immed ],
+		4, 8, # indicies of might-be-unknown args
+		defined $disp? 8 : 4 # estimated length
+	);
 }
 
 =head2 _encode_jmp_cond
@@ -777,23 +1059,46 @@ sub _append_jmp_cx {
 	return $self;
 }
 
-sub _encode_mov64_imm {
-	my ($self, $reg, $immed)= @_;
-	use integer;
-	# If the number fits in 32-bits, encode as the classic instruction
-	if (!($immed >> 32)) {
-		return $reg > 7? # need REX byte if extended register
-			pack('CCL<', 0x41, 0xB8 + ($reg&7), $immed)
-			: pack('CL<', 0xB8 + $reg, $immed);
+sub _append_possible_unknown {
+	my ($self, $encoder, $encoder_args, $unknown_pos, $estimated_length)= @_;
+	if (ref $encoder_args->[$unknown_pos]) {
+		$self->mark_unresolved(
+			$estimated_length,
+			encode => sub {
+				my $self= shift;
+				my @args= @$encoder_args;
+				$args[$unknown_pos]= $args[$unknown_pos]->value
+					// croak "Value $encoder_args->[$unknown_pos] is still unresolved";
+				$self->$encoder(@args);
+			},
+		);
 	}
-	# If the number can sign-extend from 32-bits, encode as 32-bit sign-extend
-	elsif (($immed >> 32) == -1) {
-		return pack('CCCl<', 0x48 | (($reg & 8) >> 3), 0xC7, 0xC0 + ($reg & 7), $immed);
-	}
-	# else encode as new 64-bit immediate
 	else {
-		return pack('CCQ<', 0x48 | (($reg & 8) >> 3), 0xB8 + ($reg & 7), $immed);
+		$self->{_buf} .= $self->$encoder(@$encoder_args);
 	}
+	$self;
+}
+
+sub _append_possible_unknown2 {
+	my ($self, $encoder, $encoder_args, $unknown1_pos, $unknown2_pos, $estimated_length)= @_;
+	if (ref $encoder_args->[$unknown1_pos] || ref $encoder_args->[$unknown2_pos]) {
+		$self->mark_unresolved(
+			$estimated_length,
+			encode => sub {
+				my $self= shift;
+				my @args= @$encoder_args;
+				$args[$unknown1_pos]= $args[$unknown1_pos]->value
+					// croak "Value $encoder_args->[$unknown1_pos] is still unresolved";
+				$args[$unknown2_pos]= $args[$unknown2_pos]->value
+					// croak "Value $encoder_args->[$unknown2_pos] is still unresolved";
+				$self->$encoder(@args);
+			},
+		);
+	}
+	else {
+		$self->{_buf} .= $self->$encoder(@$encoder_args);
+	}
+	$self;
 }
 
 sub _mark_unresolved {
