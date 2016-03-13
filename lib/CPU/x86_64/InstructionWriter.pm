@@ -517,10 +517,10 @@ sub mov8_const_to_mem  { shift->_append_op8_const_mem (0xC6, 0, @_) }
 
 =cut
 
-sub add64_reg { shift->_append_op64_reg_reg(0x01, $_[2], $_[1]) }
-sub add32_reg { shift->_append_op32_reg_reg(0x01, $_[2], $_[1]) }
-sub add16_reg { shift->_append_op16_reg_reg(0x01, $_[2], $_[1]) }
-sub add8_reg  { shift->_append_op8_reg_reg (0x00, $_[2], $_[1]) }
+sub add64_reg { $_[0]->_append_op64_reg_reg(0x01, $_[2], $_[1]) }
+sub add32_reg { $_[0]->_append_op32_reg_reg(0x01, $_[2], $_[1]) }
+sub add16_reg { $_[0]->_append_op16_reg_reg(0x01, $_[2], $_[1]) }
+sub add8_reg  { $_[0]->_append_op8_reg_reg (0x00, $_[2], $_[1]) }
 
 sub add64_mem { shift->_append_op_reg64_mem(8, 0x03, @_); }
 sub add32_mem { shift->_append_op_reg32_mem(0, 0x03, @_); }
@@ -549,13 +549,18 @@ sub add16_const {
 }
 sub add8_const {
 	my ($self, $reg, $immed)= @_;
-	$reg= $regnum8{$reg} // croak("$reg is not a 8-bit register");
-	$self->_append_possible_unknown('_encode_add8_imm', [ $reg, $immed ], 1, 3);
+	$reg= $regnum8{$reg};
+	if (!defined $reg) {
+		$reg= $regnum8_high{$_[1]} // croak("$reg is not a 8-bit register");
+		$self->_append_possible_unknown('_encode_add8_imm', [ 0, $reg, $immed ], 1, 3);
+	} else {
+		$self->_append_possible_unknown('_encode_add8_imm', [ $reg > 3? 0x40 : 0, $reg, $immed ], 2, 3);
+	}
 }
 sub _encode_add64_imm {
 	my ($self, $reg, $value)= @_;
 	use integer;
-	my $rex= 0x48 | (($reg & 8)>>1);
+	my $rex= 0x48 | (($reg & 8)>>3);
 	(($value >> 7) == ($value >> 8))?
 		pack('CCCc', $rex, 0x83, 0xC0 | ($reg & 7), $value)
 		: (($value >> 31) == ($value >> 32))? (
@@ -569,14 +574,14 @@ sub _encode_add64_imm {
 sub _encode_add32_imm {
 	my ($self, $reg, $value)= @_;
 	use integer;
-	my $rex= (($reg & 8)>>1);
-	(($value >> 7) == ($value >> 8))?
-		(	$rex? pack('CCCc', 0x40|$rex, 0x83, 0xC0 | ($reg & 7), $value)
-				: pack('CCc', 0x83, 0xC0 | ($reg & 7), $value)
+	my $rex= (($reg & 8)>>3);
+	(($value >> 7) == ($value >> 8) or ($value >> 8 == 0xFFFFFF))?
+		(	$rex? pack('CCCC', 0x40|$rex, 0x83, 0xC0 | ($reg & 7), $value&0xFF)
+				: pack('CCC', 0x83, 0xC0 | ($reg & 7), $value&0xFF)
 		)
 		: (($value >> 32) == ($value >> 33))? (
 			# Ops on AX get encoded as a special instruction
-			$rex? pack('CCCV', $rex, 0x81, 0xC0 | ($reg & 7), $value)
+			$rex? pack('CCCV', 0x40|$rex, 0x81, 0xC0 | ($reg & 7), $value)
 			: $reg? pack('CCV', 0x81, 0xC0 | ($reg & 7), $value)
 			: pack('CV', 0x05, $value)
 		)
@@ -585,27 +590,27 @@ sub _encode_add32_imm {
 sub _encode_add16_imm {
 	my ($self, $reg, $value)= @_;
 	use integer;
-	my $rex= (($reg & 8)>>1);
-	(($value >> 7) == ($value >> 8))?
-		(	$rex? pack('CCCc', 0x66, 0x40|$rex, 0x83, 0xC0 | ($reg & 7), $value)
-				: pack('CCc', 0x66, 0x83, 0xC0 | ($reg & 7), $value)
+	my $rex= (($reg & 8)>>3);
+	(($value >> 7) == ($value >> 8) or ($value >> 8 == 0xFF))?
+		(	$rex? pack('CCCCC', 0x66, 0x40|$rex, 0x83, 0xC0 | ($reg & 7), $value&0xFF)
+				: pack('CCCC', 0x66, 0x83, 0xC0 | ($reg & 7), $value&0xFF)
 		)
 		: (($value >> 16) == ($value >> 17))? (
 			# Ops on AX get encoded as a special instruction
-			$rex? pack('CCCCv', 0x66, $rex, 0x81, 0xC0 | ($reg & 7), $value)
-			: $reg? pack('CCCv', 0x66, 0x81, 0xC0 | ($reg & 7), $value)
-			: pack('Cv', 0x66, 0x05, $value)
+			$rex? pack('CCCCv', 0x66, 0x40|$rex, 0x81, 0xC0 | ($reg & 7), $value&0xFFFF)
+			: $reg? pack('CCCv', 0x66, 0x81, 0xC0 | ($reg & 7), $value&0xFFFF)
+			: pack('CCv', 0x66, 0x05, $value)
 		)
 		: croak "$value is wider than 16-bit";
 }
 sub _encode_add8_imm {
-	my ($self, $reg, $value)= @_;
+	my ($self, $rex, $reg, $value)= @_;
 	use integer;
-	my $rex= (($reg & 8)>>1);
+	$rex |= (($reg & 8)>>3);
 	(($value >> 8) == ($value >> 9))?
-		(	$rex? pack('CCCc', 0x40|$rex, 0x80, 0xC0 | ($reg & 7), $value)
-			: $reg? pack('CCc', 0x80, 0xC0 | ($reg & 7), $value)
-			: pack('Cc', 0x04, $value)
+		(	$rex? pack('CCCC', 0x40|$rex, 0x80, 0xC0 | ($reg & 7), $value&0xFF)
+			: $reg? pack('CCC', 0x80, 0xC0 | ($reg & 7), $value&0xFF)
+			: pack('CC', 0x04, $value&0xFF)
 		)
 		: croak "$value is wider than signed 8-bit";
 }
@@ -614,7 +619,7 @@ sub add64_const_to_mem {
 	my ($self, $value, $base_reg, $disp, $index_reg, $scale)= @_;
 	$base_reg= ($regnum64{$base_reg} // croak "$base_reg is not a 64-bit register")
 		if defined $base_reg;
-	$index_reg= ($regnum64{$base_reg} // croak "$index_reg is not a 64-bit register")
+	$index_reg= ($regnum64{$index_reg} // croak "$index_reg is not a 64-bit register")
 		if defined $index_reg;
 	$self->_append_possible_unknown('_encode_add64_const_mem', [ $value, $base_reg, $disp, $index_reg, $scale ], 0, defined $disp? 9:12);
 }
@@ -622,9 +627,9 @@ sub _encode_add64_const_mem {
 	my ($self, $value, $base_reg, $disp, $index_reg, $scale)= @_;
 	use integer;
 	(($value >> 7) == ($value >> 8))?
-		$self->_encode_op_reg_mem(8, 0x83, 0, $base_reg, $disp, $index_reg, $scale).pack('c',$value)
+		$self->_encode_op_reg_mem(8, 0x83, 0, $base_reg, $disp, $index_reg, $scale, 'C', $value&0xFF)
 		: (($value >> 31) == ($value >> 32))?
-			$self->_encode_op_reg_mem(8, 0x81, 0, $base_reg, $disp, $index_reg, $scale).pack('V', $value)
+			$self->_encode_op_reg_mem(8, 0x81, 0, $base_reg, $disp, $index_reg, $scale, 'V', $value&0xFFFFFFFF)
 		: croak "$value is wider than 32-bit";
 }
 
@@ -632,17 +637,17 @@ sub add32_const_to_mem {
 	my ($self, $value, $base_reg, $disp, $index_reg, $scale)= @_;
 	$base_reg= ($regnum64{$base_reg} // croak "$base_reg is not a 64-bit register")
 		if defined $base_reg;
-	$index_reg= ($regnum64{$base_reg} // croak "$index_reg is not a 64-bit register")
+	$index_reg= ($regnum64{$index_reg} // croak "$index_reg is not a 64-bit register")
 		if defined $index_reg;
 	$self->_append_possible_unknown('_encode_add32_const_mem', [ $value, $base_reg, $disp, $index_reg, $scale ], 0, defined $disp? 12:8);
 }
 sub _encode_add32_const_mem {
 	my ($self, $value, $base_reg, $disp, $index_reg, $scale)= @_;
 	use integer;
-	(($value >> 7) == ($value >> 8))?
-		$self->_encode_op_reg_mem(0, 0x83, 0, $base_reg, $disp, $index_reg, $scale).pack('c',$value)
+	(($value >> 7) == ($value >> 8) or ($value >> 8 == 0xFFFFFF))?
+		$self->_encode_op_reg_mem(0, 0x83, 0, $base_reg, $disp, $index_reg, $scale).pack('C',$value&0xFF)
 		: (($value >> 32) == ($value >> 33))?
-			$self->_encode_op_reg_mem(0, 0x81, 0, $base_reg, $disp, $index_reg, $scale).pack('V', $value)
+			$self->_encode_op_reg_mem(0, 0x81, 0, $base_reg, $disp, $index_reg, $scale).pack('V', $value&0xFFFFFFFF)
 		: croak "$value is wider than 32-bit";
 }
 
@@ -650,7 +655,7 @@ sub add16_const_to_mem {
 	my ($self, $value, $base_reg, $disp, $index_reg, $scale)= @_;
 	$base_reg= ($regnum64{$base_reg} // croak "$base_reg is not a 64-bit register")
 		if defined $base_reg;
-	$index_reg= ($regnum64{$base_reg} // croak "$index_reg is not a 64-bit register")
+	$index_reg= ($regnum64{$index_reg} // croak "$index_reg is not a 64-bit register")
 		if defined $index_reg;
 	$self->{_buf} .= "\x66";
 	$self->_append_possible_unknown('_encode_add16_const_mem', [ $value, $base_reg, $disp, $index_reg, $scale ], 0, defined $disp? 10:6);
@@ -658,10 +663,10 @@ sub add16_const_to_mem {
 sub _encode_add16_const_mem {
 	my ($self, $value, $base_reg, $disp, $index_reg, $scale)= @_;
 	use integer;
-	(($value >> 7) == ($value >> 8))?
-		$self->_encode_op_reg_mem(0, 0x83, 0, $base_reg, $disp, $index_reg, $scale).pack('c',$value)
+	(($value >> 7) == ($value >> 8) or ($value >> 8 == 0xFF))?
+		$self->_encode_op_reg_mem(0, 0x83, 0, $base_reg, $disp, $index_reg, $scale).pack('C',$value&0xFF)
 		: (($value >> 16) == ($value >> 17))?
-			$self->_encode_op_reg_mem(0, 0x81, 0, $base_reg, $disp, $index_reg, $scale).pack('v', $value)
+			$self->_encode_op_reg_mem(0, 0x81, 0, $base_reg, $disp, $index_reg, $scale).pack('v', $value&0xFFFF)
 		: croak "$value is wider than 16-bit";
 }
 
@@ -669,7 +674,7 @@ sub add8_const_to_mem {
 	my ($self, $value, $base_reg, $disp, $index_reg, $scale)= @_;
 	$base_reg= ($regnum64{$base_reg} // croak "$base_reg is not a 64-bit register")
 		if defined $base_reg;
-	$index_reg= ($regnum64{$base_reg} // croak "$index_reg is not a 64-bit register")
+	$index_reg= ($regnum64{$index_reg} // croak "$index_reg is not a 64-bit register")
 		if defined $index_reg;
 	$self->_append_possible_unknown('_encode_add8_const_mem', [ $value, $base_reg, $disp, $index_reg, $scale ], 0, defined $disp? 10:6);
 }
@@ -677,7 +682,7 @@ sub _encode_add8_const_mem {
 	my ($self, $value, $base_reg, $disp, $index_reg, $scale)= @_;
 	use integer;
 	(($value >> 8) == ($value >> 9)) or croak "$value is wider than 8 bit";
-	$self->_encode_op_reg_mem(0, 0x80, 0, $base_reg, $disp, $index_reg, $scale).pack('c',$value);
+	$self->_encode_op_reg_mem(0, 0x80, 0, $base_reg, $disp, $index_reg, $scale).pack('C',$value&0xFF);
 }
 
 =head2 syscall
@@ -815,9 +820,8 @@ sub _append_op8_reg_reg {
 		$self->{_buf} .= pack('CC', $opcode, 0xC0 | ($reg1 << 3) | $reg2);
 	}
 	else {
-		my $rex= (($reg1 & 8) >> 1) | (($reg2 & 8) >> 3);
-		$self->{_buf} .= $rex?
-			pack('CCC', 0x40|$rex, $opcode, 0xC0 | (($reg1 & 7) << 3) | ($reg2 & 7))
+		$self->{_buf} .= ($reg1 > 3 || $reg2 > 3)?
+			pack('CCC', 0x40|(($reg1 & 8) >> 1) | (($reg2 & 8) >> 3), $opcode, 0xC0 | (($reg1 & 7) << 3) | ($reg2 & 7))
 			: pack('CC', $opcode, 0xC0 | ($reg1 << 3) | $reg2);
 	}
 	$self;
