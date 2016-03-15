@@ -36,7 +36,7 @@ sub asm_ok {
 	} else {
 		fail $message;
 		# Use a binary search to find which instructions failed
-		show_bad_instructions($output, $asm_text, 0, $#$output);
+		eval { show_bad_instructions($output, $asm_text, 0, $#$output) };
 	}
 }
 
@@ -49,6 +49,8 @@ sub show_bad_instructions {
 			diag "$asm_text->[$_] was ".hex_dump($out)." but should be ".hex_dump($ref)
 				unless $out eq $ref;
 		}
+		diag "(and possibly more)";
+		die; # quick exit
 	}
 	else {
 		my $mid= int(($min+$max)/2);

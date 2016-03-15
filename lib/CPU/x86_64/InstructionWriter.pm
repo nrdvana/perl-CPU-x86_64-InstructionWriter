@@ -571,10 +571,15 @@ sub cmp32_to_mem { shift->_append_op_reg32_mem(0, 0x39, @_); }
 sub cmp16_to_mem { shift->_append_op_reg16_mem(0, 0x39, @_); }
 sub cmp8_to_mem  { shift->_append_op_reg8_mem (0, 0x38, @_); }
 
-sub cmp64_const { shift->_append_mathop64_const(0x83, 0x81, 7, 0x3D, @_) }
-sub cmp32_const { shift->_append_mathop32_const(0x83, 0x81, 7, 0x3D, @_) }
-sub cmp16_const { shift->_append_mathop16_const(0x83, 0x81, 7, 0x3D, @_) }
-sub cmp8_const  { shift->_append_mathop8_const (0x80, 7, 0x3D, @_) }
+sub cmp64_const { shift->_append_mathop64_const(0x3D, 0x83, 0x81, 7, @_) }
+sub cmp32_const { shift->_append_mathop32_const(0x3D, 0x83, 0x81, 7, @_) }
+sub cmp16_const { shift->_append_mathop16_const(0x3D, 0x83, 0x81, 7, @_) }
+sub cmp8_const  { shift->_append_mathop8_const (0x3C, 0x80, 7, @_) }
+
+sub cmp64_const_to_mem { shift->_append_mathop64_const_to_mem(0x83, 0x81, 7, @_) }
+sub cmp32_const_to_mem { shift->_append_mathop32_const_to_mem(0x83, 0x81, 7, @_) }
+sub cmp16_const_to_mem { shift->_append_mathop16_const_to_mem(0x83, 0x81, 7, @_) }
+sub cmp8_const_to_mem  { shift->_append_mathop8_const_to_mem (0x80, 7, @_) }
 
 =back
 
