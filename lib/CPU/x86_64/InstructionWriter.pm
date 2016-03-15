@@ -625,6 +625,54 @@ sub inc32_mem { shift->_append_op32_reg_mem(0, 0xFF, 0, @_) }
 sub inc16_mem { shift->_append_op16_reg_mem(0, 0xFF, 0, @_) }
 sub inc8_mem  { shift->_append_op8_reg_mem (0, 0xFE, 0, @_) }
 
+=head2 NOT
+
+Flip all bits in a target register or memory location.
+
+=over
+
+=item notNN_reg
+
+=item notNN_mem
+
+=back
+
+=cut
+
+sub not64_reg { shift->_append_op64_reg_reg(0xF7, 2, @_) }
+sub not32_reg { shift->_append_op32_reg_reg(0xF7, 2, @_) }
+sub not16_reg { shift->_append_op16_reg_reg(0xF7, 2, @_) }
+sub not8_reg  { shift->_append_op8_reg_reg (0xF6, 2, @_) }
+
+sub not64_mem { shift->_append_op64_reg_mem(8, 0xF7, 2, @_) }
+sub not32_mem { shift->_append_op32_reg_mem(0, 0xF7, 2, @_) }
+sub not16_mem { shift->_append_op16_reg_mem(0, 0xF7, 2, @_) }
+sub not8_mem  { shift->_append_op8_reg_mem (0, 0xF6, 2, @_) }
+
+=head2 NEG
+
+Replace target register or memory location with signed negation (2's complement).
+
+=over
+
+=item negNN_reg
+
+=item negNN_mem
+
+=back
+
+=cut
+
+sub neg64_reg { shift->_append_op64_reg_reg(0xF7, 3, @_) }
+sub neg32_reg { shift->_append_op32_reg_reg(0xF7, 3, @_) }
+sub neg16_reg { shift->_append_op16_reg_reg(0xF7, 3, @_) }
+sub neg8_reg  { shift->_append_op8_reg_reg (0xF6, 3, @_) }
+
+sub neg64_mem { shift->_append_op64_reg_mem(8, 0xF7, 3, @_) }
+sub neg32_mem { shift->_append_op32_reg_mem(0, 0xF7, 3, @_) }
+sub neg16_mem { shift->_append_op16_reg_mem(0, 0xF7, 3, @_) }
+sub neg8_mem  { shift->_append_op8_reg_mem (0, 0xF6, 3, @_) }
+
 =back
 
 =head2 syscall
