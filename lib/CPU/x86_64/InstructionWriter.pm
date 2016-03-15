@@ -581,6 +581,50 @@ sub cmp32_const_to_mem { shift->_append_mathop32_const_to_mem(0x83, 0x81, 7, @_)
 sub cmp16_const_to_mem { shift->_append_mathop16_const_to_mem(0x83, 0x81, 7, @_) }
 sub cmp8_const_to_mem  { shift->_append_mathop8_const_to_mem (0x80, 7, @_) }
 
+=head2 DEC
+
+=over
+
+=item decNN_reg
+
+=item decNN_mem
+
+=back
+
+=cut
+
+sub dec64_reg { shift->_append_op64_reg_reg(0xFF, 1, @_) }
+sub dec32_reg { shift->_append_op32_reg_reg(0xFF, 1, @_) }
+sub dec16_reg { shift->_append_op16_reg_reg(0xFF, 1, @_) }
+sub dec8_reg  { shift->_append_op8_reg_reg (0xFE, 1, @_) }
+
+sub dec64_mem { shift->_append_op64_reg_mem(8, 0xFF, 1, @_) }
+sub dec32_mem { shift->_append_op32_reg_mem(0, 0xFF, 1, @_) }
+sub dec16_mem { shift->_append_op16_reg_mem(0, 0xFF, 1, @_) }
+sub dec8_mem  { shift->_append_op8_reg_mem (0, 0xFE, 1, @_) }
+
+=head2 INC
+
+=over
+
+=item incNN_reg
+
+=item incNN_mem
+
+=back
+
+=cut
+
+sub inc64_reg { shift->_append_op64_reg_reg(0xFF, 0, @_) }
+sub inc32_reg { shift->_append_op32_reg_reg(0xFF, 0, @_) }
+sub inc16_reg { shift->_append_op16_reg_reg(0xFF, 0, @_) }
+sub inc8_reg  { shift->_append_op8_reg_reg (0xFE, 0, @_) }
+
+sub inc64_mem { shift->_append_op64_reg_mem(8, 0xFF, 0, @_) }
+sub inc32_mem { shift->_append_op32_reg_mem(0, 0xFF, 0, @_) }
+sub inc16_mem { shift->_append_op16_reg_mem(0, 0xFF, 0, @_) }
+sub inc8_mem  { shift->_append_op8_reg_mem (0, 0xFE, 0, @_) }
+
 =back
 
 =head2 syscall
