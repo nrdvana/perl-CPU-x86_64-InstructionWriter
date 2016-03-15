@@ -673,6 +673,50 @@ sub neg32_mem { shift->_append_op32_reg_mem(0, 0xF7, 3, @_) }
 sub neg16_mem { shift->_append_op16_reg_mem(0, 0xF7, 3, @_) }
 sub neg8_mem  { shift->_append_op8_reg_mem (0, 0xF6, 3, @_) }
 
+=head2 DIV, IDIV
+
+=over
+
+=item divNNu_reg
+
+Unsigned divide of _DX:_AX by a NN-bit register.  (divides AX into AL,AH for 8-bit) 
+
+=item divNNu_mem
+
+Unsigned divide of _DX:_AX by a NN-bit memory value referenced by 64-bit registers
+
+=item divNNs_reg
+
+Signed divide of _DX:_AX by a NN-bit register.  (divides AX into AL,AH for 8-bit)
+
+=item divNNs_mem
+
+Signed divide of _DX:_AX by a NN-bit memory value referenced by 64-bit registers
+
+=back
+
+=cut
+
+sub div64u_reg { shift->_append_op64_reg_reg(0xF7, 6, @_) }
+sub div32u_reg { shift->_append_op32_reg_reg(0xF7, 6, @_) }
+sub div16u_reg { shift->_append_op16_reg_reg(0xF7, 6, @_) }
+sub div8u_reg  { shift->_append_op8_opreg_reg(0xF6, 6, @_) }
+
+sub div64u_mem { shift->_append_op64_reg_mem(8, 0xF7, 6, @_) }
+sub div32u_mem { shift->_append_op32_reg_mem(0, 0xF7, 6, @_) }
+sub div16u_mem { shift->_append_op16_reg_mem(0, 0xF7, 6, @_) }
+sub div8u_mem  { shift->_append_op8_opreg_mem(0, 0xF6, 6, @_) }
+
+sub div64s_reg { shift->_append_op64_reg_reg(0xF7, 7, @_) }
+sub div32s_reg { shift->_append_op32_reg_reg(0xF7, 7, @_) }
+sub div16s_reg { shift->_append_op16_reg_reg(0xF7, 7, @_) }
+sub div8s_reg  { shift->_append_op8_opreg_reg(0xF6, 7, @_) }
+
+sub div64s_mem { shift->_append_op64_reg_mem(8, 0xF7, 7, @_) }
+sub div32s_mem { shift->_append_op32_reg_mem(0, 0xF7, 7, @_) }
+sub div16s_mem { shift->_append_op16_reg_mem(0, 0xF7, 7, @_) }
+sub div8s_mem  { shift->_append_op8_opreg_mem(0, 0xF6, 7, @_) }
+
 =back
 
 =head2 syscall
@@ -817,6 +861,27 @@ sub _append_op8_reg_reg {
 	$self;
 }
 
+# Like above, but the first register argument isn't really a register argument
+# and therefore doesn't require a 0x40 prefix for values > 3
+sub _append_op8_opreg_reg {
+	my ($self, $opcode, $opreg, $reg2)= @_;
+	use integer;
+	$reg2= $regnum8{$reg2};
+	# special case for the "high byte" registers.  They can't be used in an
+	# instruction that uses the REX prefix.
+	if (!defined $reg2) {
+		my $old_reg2= $reg2;
+		$reg2= $regnum8_high{$_[3]} // croak "$_[3] is not a valid 8-bit register";
+		$self->{_buf} .= pack('CC', $opcode, 0xC0 | ($opreg << 3) | $reg2);
+	}
+	else {
+		$self->{_buf} .= ($reg2 > 3)?
+			pack('CCC', 0x40| (($reg2 & 8) >> 3), $opcode, 0xC0 | ($opreg << 3) | ($reg2 & 7))
+			: pack('CC', $opcode, 0xC0 | ($opreg << 3) | $reg2);
+	}
+	$self;
+}
+
 =head2 _append_op64_reg_mem
 
 Encode standard 64-bit instruction with REX prefix which addresses memory for one of its operands.
@@ -881,6 +946,17 @@ sub _append_op8_reg_mem {
 		$rex |= 0x40;
 	}
 	$self->_append_possible_unknown('_encode_op_reg_mem', [$rex, $opcode, $reg, $base_reg, $disp, $index_reg, $scale], 4, 7);
+}
+# Like above, but the first register is a constant and don't need to test it for
+# requiring a REX prefix if >3.
+sub _append_op8_opreg_mem {
+	@_ <= 8 or croak "Too many arguments";
+	my ($self, $rex, $opcode, $opreg, $base_reg, $disp, $index_reg, $scale)= @_;
+	$base_reg= $regnum64{$base_reg} // croak "$base_reg is not a valid 64-bit register"
+		if defined $base_reg;
+	$index_reg= $regnum64{$index_reg} // croak "$index_reg is not a valid 64-bit register"
+		if defined $index_reg;
+	$self->_append_possible_unknown('_encode_op_reg_mem', [$rex, $opcode, $opreg, $base_reg, $disp, $index_reg, $scale], 4, 7);
 }
 
 # scale values for the SIB byte
