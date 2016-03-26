@@ -717,7 +717,30 @@ sub div32s_mem { shift->_append_op32_reg_mem(0, 0xF7, 7, @_) }
 sub div16s_mem { shift->_append_op16_reg_mem(0, 0xF7, 7, @_) }
 sub div8s_mem  { shift->_append_op8_opreg_mem(0, 0xF6, 7, @_) }
 
+=head2 flag modifiers
+
+Each flag modifier takes an argument of 0 (clear), 1 (set), or -1 (invert).
+
+=over
+
+=item flag_carry($state), clc, cmc, stc
+
+=item flag_direction($state), cld, std
+
 =back
+
+=cut
+
+my @_carry_flag_op= ( "\xF5", "\xF8", "\xF9" );
+sub flag_carry { $_[0]{_buf} .= $_carry_flag_op[$_[1] + 1]; $_[0] }
+sub clc { $_[0]{_buf} .= "\xF8"; $_[0] }
+sub cmc { $_[0]{_buf} .= "\xF5"; $_[0] }
+sub stc { $_[0]{_buf} .= "\xF9"; $_[0] }
+
+my @_direction_flag_op= ( "\xFC", "\xFD" );
+sub flag_direction { $_[0]{_buf} .= $_direction_flag_op[$_[1]]; $_[0] }
+sub cld { $_[0]{_buf} .= "\xFC"; $_[0] }
+sub std { $_[0]{_buf} .= "\xFD"; $_[0] }
 
 =head2 syscall
 
