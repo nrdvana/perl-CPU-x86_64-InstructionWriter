@@ -188,15 +188,20 @@ sub bytes {
 The following methods append an instruction to the buffer, and return C<$self> so you can continue
 calling instructions in a chain.
 
-=head2 nop
+=head2 NOP
 
-Insert a no-op byte.  TODO: add second argument that inserts nops until a specified alignment or
-memory address.
+Insert one or more no-op instructions.
+
+=over
+
+=item nop(), C<nop( $n )>
+
+If called without an argument, insert one no-op.  Else insert C<$n> no-ops.
 
 =cut
 
 sub nop {
-	$_[0]{_buf} .= "\x90";
+	$_[0]{_buf} .= (defined $_[1]? "\x90" x $_[1] : "\x90");
 	$_[0];
 }
 
