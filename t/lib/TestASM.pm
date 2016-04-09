@@ -29,9 +29,9 @@ sub nasm_cache_file {
 sub asm_ok {
 	my ($output, $asm_text, $message)= @_;
 	# Run a test as one giant block of asm
-	my $reference= reference_assemble(join("\n", @$asm_text));
+	my $reference= eval { reference_assemble(join("\n", @$asm_text)) } || '';
 	# Compare it with what we built
-	if (join('', @$output) eq $reference) {
+	if ($reference && join('', @$output) eq $reference) {
 		pass $message;
 	} else {
 		fail $message;
@@ -45,9 +45,14 @@ sub show_bad_instructions {
 	if ($max - $min < 8) {
 		for ($min..$max) {
 			my $out= $output->[$_];
-			my $ref= reference_assemble($asm_text->[$_]);
-			diag "$asm_text->[$_] was ".hex_dump($out)." but should be ".hex_dump($ref)
-				unless $out eq $ref;
+			my $ref= eval { reference_assemble($asm_text->[$_]); };
+			if (!defined $ref) {
+				my $asm_str= $asm_text->[$_];
+				$asm_str =~ s/\n/; /g;
+				diag "Can't get reference ASM for $asm_str: $@";
+			} elsif ($out ne $ref) {
+				diag "$asm_text->[$_] was ".hex_dump($out)." but should be ".hex_dump($ref)
+			}
 		}
 		diag "(and possibly more)";
 		die; # quick exit
