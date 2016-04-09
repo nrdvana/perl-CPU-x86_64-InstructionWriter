@@ -3,14 +3,9 @@ use strict;
 use warnings;
 use FindBin;
 use lib "$FindBin::Bin/lib";
-use TestASM;
+use TestASM qw( new_writer iterate_mem_addr_combos asm_ok @r64 @r32 @r16 @r8 @r8h @immed64 @immed32 @immed16 @immed8 );
 use Test::More;
 use Log::Any::Adapter 'TAP';
-use CPU::x86_64::InstructionWriter;
-
-sub new_writer { CPU::x86_64::InstructionWriter->new };
-
-my @r64= qw( rax rcx rdx rbx rsp rbp rsi rdi r8 r9 r10 r11 r12 r13 r14 r15 );
 
 subtest forward => \&forward;
 sub forward {
@@ -59,7 +54,7 @@ sub jmp_abs_reg {
 		push @asm, "jmp $reg";
 		push @out, new_writer->jmp_abs_reg($reg)->bytes;
 	}
-	asm_ok( \@out, \@asm, 'jump REG' );
+	asm_ok( \@out, \@asm, 'jmp REG' );
 	
 	done_testing;
 }
@@ -67,47 +62,11 @@ sub jmp_abs_reg {
 subtest jmp_abs_mem => \&jmp_abs_mem;
 sub jmp_abs_mem {
 	my (@asm, @out);
-	for my $reg (@r64) {
-		push @asm, "jmp [$reg]\n";
-		push @out, new_writer->jmp_abs_mem($reg)->bytes;
-	}
-	asm_ok( \@out, \@asm, 'jmp [REG]' );
-	
-	@asm= (); @out= ();
-	for my $r1 (@r64) {
-		push @asm, "jmp [$r1+7Fh]\n" . "jmp [$r1-80h]\n";
-		push @out, new_writer->jmp_abs_mem($r1, 0x7F)->jmp_abs_mem($r1, -0x80)->bytes;
-	}
-	asm_ok( \@out, \@asm, 'jmp [reg + disp]' );
-
-	@asm= (); @out= ();
-	for my $r2 (grep { $_ ne 'rsp' } @r64) {
-		for my $r1 (@r64) {
-			push @asm, "jmp [$r1 + $r2*4]\n"
-				. "jmp [$r1+7Fh + $r2*2]\n"
-				. "jmp [$r1-80h + $r2*8]\n";
-			push @out, new_writer
-				->jmp_abs_mem($r1, 0, $r2, 4)
-				->jmp_abs_mem($r1, 0x7F, $r2, 2)
-				->jmp_abs_mem($r1, -0x80, $r2, 8)
-				->bytes;
-		}
-	}
-	asm_ok( \@out, \@asm, 'jmp [reg + disp + reg2 * scale' );
-	
-	done_testing;
-}
-
-subtest loop => \&loop;
-sub loop {
-	my (@asm, @out);
-	my $loop= 0;
-	
-	for my $r1 (@r64) {
-		push @asm, "jmp [$r1]\n";
-		push @out, new_writer->jmp_abs_mem($r1)->bytes;
-	}
-	asm_ok( \@out, \@asm, 'jmp [reg]' );
+	iterate_mem_addr_combos(
+		\@asm, sub { "jmp $_[0]" },
+		\@out, sub { new_writer->jmp_abs_mem(@_)->bytes }
+	);
+	asm_ok( \@out, \@asm, 'jmp [MEM...]' );
 	
 	done_testing;
 }

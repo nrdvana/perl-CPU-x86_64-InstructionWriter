@@ -3,12 +3,9 @@ use strict;
 use warnings;
 use FindBin;
 use lib "$FindBin::Bin/lib";
-use TestASM;
+use TestASM qw( new_writer asm_ok @r64 @r32 @r16 @r8 @r8h @immed64 @immed32 @immed16 @immed8 );
 use Test::More;
 use Log::Any::Adapter 'TAP';
-use CPU::x86_64::InstructionWriter;
-
-sub new_writer { CPU::x86_64::InstructionWriter->new };
 
 my (@asm, @out);
 
@@ -22,7 +19,7 @@ my %alias= (
 for my $op (keys %alias) {
 	my ($method, $arg)= @{ $alias{$op} };
 	push @asm, $op."\n".$op;
-	push @out, new_writer->$op->bytes . new_writer->$method($arg)->bytes;
+	push @out, new_writer->$op->$method($arg)->bytes;
 }
 
 asm_ok(\@out, \@asm, 'flag modifiers');

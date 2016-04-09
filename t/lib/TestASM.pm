@@ -1,14 +1,81 @@
 package TestASM;
 use strict;
 use warnings;
+no warnings 'portable';
 use Exporter 'import';
 use Test::More;
 use IO::Handle;
 use File::Temp;
 use File::Spec::Functions 'splitpath', 'splitdir', 'catdir', 'catpath';
 use Digest::MD5 'md5_hex';
+use CPU::x86_64::InstructionWriter;
 
-our @EXPORT= qw( reference_assemble hex_diff have_nasm asm_ok );
+our @EXPORT_OK= qw( reference_assemble iterate_mem_addr_combos
+	hex_diff have_nasm asm_ok new_writer
+	@r64 @r32 @r16 @r8 @r8h @immed64 @immed32 @immed16 @immed8 );
+
+my $do_all= $ENV{TEST_EXHAUSTIVE}
+	or note "Skipping exhaustive testing, set TEST_EXHAUSTIVE=1 to do a full test";
+
+our @r64= $do_all? (qw( rax rcx rdx rbx rsp rbp rsi rdi r8 r9 r10 r11 r12 r13 r14 r15 ))
+	: (qw( rax rcx rbx rsp r11 r12 r13 ));
+our @r32= $do_all? (qw( eax ecx edx ebx esp ebp esi edi r8d r9d r10d r11d r12d r13d r14d r15d ))
+	: (qw( eax ecx esp ebp r8d r12d r13d ));
+our @r16= $do_all? (qw( ax cx dx bx sp bp si di r8w r9w r10w r11w r12w r13w r14w r15w ))
+	: (qw( ax cx sp bp r8w r12w r13w ));
+our @r8 = $do_all? (qw( al cl dl bl spl bpl sil dil r8b r9b r10b r11b r12b r13b r14b r15b ))
+	: (qw( al cl spl bpl r8b r12b r13b ));
+our @r8h= qw( ah ch dh bh );
+
+our @scale= (1, 2, 4, 8);
+
+our @immed64= $do_all? (0, map { (1 << $_, -1 << $_) } 0..62)
+	: (0, 1, -1, 0x7F, -0x80, 0x7FFFFFFF, -0x80000000, 0x7FFFFFFFFFFFFFFF, -0x8000000000000000);
+our @immed32= $do_all? (0, map { (1 << $_, -1 << $_) } 0..30)
+	: (0, 1, -1, 0x7F, -0x80, 0x7FFFFFFF, -0x80000000, -1);
+our @immed16= $do_all? (0, map { (1 << $_, -1 << $_) } 0..14)
+	: (0, 1, -1, 0x7F, -0x80, 0x7FFF, -0x8000);
+our @immed8=  $do_all? (0, map { (1 << $_, -1 << $_) } 0..6)
+	: (0, 1, -1, 0x7F, -0x80);
+
+sub new_writer {
+	CPU::x86_64::InstructionWriter->new
+}
+
+sub iterate_mem_addr_combos {
+	my ($asm, $asm_fn, $out, $out_fn)= @_;
+	if ($do_all) {
+		for my $rbase (undef, @r64) {
+			for my $ofs (0, 1, -1, 0x7FFFFFFF) {
+				for my $ridx (undef, grep { $_ ne 'rsp' } @r64) {
+					for my $scale ($rbase? (2, 4, 8) : (4, 8)) {
+						next unless $rbase or $ofs or $ridx;
+						push @$asm, $asm_fn->("["
+							. (!defined $rbase? '' : $rbase)
+							. (!defined $ofs? '' : $ofs >= 0? "+$ofs" : $ofs)
+							. (!defined $ridx? '' : (defined $rbase || defined $ofs? "+":'')."$ridx*$scale")
+							."]");
+						push @$out, $out_fn->($rbase, $ofs, $ridx, $ridx? $scale : undef);
+					}
+				}
+			}
+		}
+	} else {
+		for my $rbase (undef, 'rax', 'rsp', 'rbp') {
+			for my $ofs (0, 1, -1, 0x7FFFFFFF) {
+				for my $ridx (undef, 'rax', 'rbp', 'r12') {
+					next unless $rbase or $ofs or $ridx;
+					push @$asm, $asm_fn->("["
+						. (!defined $rbase? '' : $rbase)
+						. (!defined $ofs? '' : $ofs >= 0? "+$ofs" : $ofs)
+						. (!defined $ridx? '' : (defined $rbase || defined $ofs? "+":'')."$ridx*4")
+						."]");
+					push @$out, $out_fn->($rbase, $ofs, $ridx, $ridx? 4 : undef);
+				}
+			}
+		}
+	}
+}
 
 sub which_nasm {
 	return $ENV{NASM_PATH} if defined $ENV{NASM_PATH};
@@ -29,9 +96,9 @@ sub nasm_cache_file {
 sub asm_ok {
 	my ($output, $asm_text, $message)= @_;
 	# Run a test as one giant block of asm
-	my $reference= eval { reference_assemble(join("\n", @$asm_text)) } || '';
+	my $reference= eval { reference_assemble(join("\n", @$asm_text)) };
 	# Compare it with what we built
-	if ($reference && join('', @$output) eq $reference) {
+	if (defined $reference and join('', @$output) eq $reference) {
 		pass $message;
 	} else {
 		fail $message;
