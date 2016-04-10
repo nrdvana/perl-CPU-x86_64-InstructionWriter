@@ -504,21 +504,27 @@ sub mov8_const_to_mem  { shift->_append_op8_const_mem (0xC6, 0, @_) }
 
 =back
 
-=head2 ADD
+=head2 CMOV
+
+TODO...
+
+=head2 ADD, ADC
+
+The add## variants are the plain ADD instruction, for each bit width.
+The addcarry## variants are the ADC instruction that also adds the carry flag, useful for
+multi-word addition.
 
 =over
 
-=item C<add64_reg(reg64, reg64)>
+=item C<add##_reg(reg64, reg64)>
 
-=item C<add64_mem(reg64, base_reg64, displacement, index_reg64, scale)>
+=item C<add##_mem(reg64, base_reg64, displacement, index_reg64, scale)>
 
-=item C<add64_to_mem(reg64, base_reg64, displacement, index_reg64, scale)>
+=item C<add##_to_mem(reg64, base_reg64, displacement, index_reg64, scale)>
 
-=item C<add64_const(reg64, const)>
+=item C<add##_const(reg64, const)>
 
-=item C<add64_const_to_mem(const, base_reg64, displacement, index_reg64, scale)>
-
-=back
+=item C<add##_const_to_mem(const, base_reg64, displacement, index_reg64, scale)>
 
 =cut
 
@@ -546,6 +552,43 @@ sub add64_const_to_mem { shift->_append_mathop64_const_to_mem(0x83, 0x81, 0, @_)
 sub add32_const_to_mem { shift->_append_mathop32_const_to_mem(0x83, 0x81, 0, @_) }
 sub add16_const_to_mem { shift->_append_mathop16_const_to_mem(0x83, 0x81, 0, @_) }
 sub add8_const_to_mem  { shift->_append_mathop8_const_to_mem (0x80, 0, @_) }
+
+=item C<addcarry##_reg(reg64, reg64)>
+
+=item C<addcarry##_mem(reg64, base_reg64, displacement, index_reg64, scale)>
+
+=item C<addcarry##_to_mem(reg64, base_reg64, displacement, index_reg64, scale)>
+
+=item C<addcarry##_const(reg64, const)>
+
+=item C<addcarry##_const_to_mem(const, base_reg64, displacement, index_reg64, scale)>
+
+=cut
+
+sub addcarry64_reg { $_[0]->_append_op64_reg_reg(0x11, $_[2], $_[1]) }
+sub addcarry32_reg { $_[0]->_append_op32_reg_reg(0x11, $_[2], $_[1]) }
+sub addcarry16_reg { $_[0]->_append_op16_reg_reg(0x11, $_[2], $_[1]) }
+sub addcarry8_reg  { $_[0]->_append_op8_reg_reg (0x10, $_[2], $_[1]) }
+
+sub addcarry64_mem { shift->_append_op64_reg_mem(8, 0x13, @_); }
+sub addcarry32_mem { shift->_append_op32_reg_mem(0, 0x13, @_); }
+sub addcarry16_mem { shift->_append_op16_reg_mem(0, 0x13, @_); }
+sub addcarry8_mem  { shift->_append_op8_reg_mem (0, 0x12, @_); }
+
+sub addcarry64_to_mem { shift->_append_op64_reg_mem(8, 0x11, @_); }
+sub addcarry32_to_mem { shift->_append_op32_reg_mem(0, 0x11, @_); }
+sub addcarry16_to_mem { shift->_append_op16_reg_mem(0, 0x11, @_); }
+sub addcarry8_to_mem  { shift->_append_op8_reg_mem (0, 0x10, @_); }
+
+sub addcarry64_const { shift->_append_mathop64_const(0x15, 0x83, 0x81, 2, @_) }
+sub addcarry32_const { shift->_append_mathop32_const(0x15, 0x83, 0x81, 2, @_) }
+sub addcarry16_const { shift->_append_mathop16_const(0x15, 0x83, 0x81, 2, @_) }
+sub addcarry8_const  { shift->_append_mathop8_const (0x14, 0x80, 2, @_) }
+
+sub addcarry64_const_to_mem { shift->_append_mathop64_const_to_mem(0x83, 0x81, 2, @_) }
+sub addcarry32_const_to_mem { shift->_append_mathop32_const_to_mem(0x83, 0x81, 2, @_) }
+sub addcarry16_const_to_mem { shift->_append_mathop16_const_to_mem(0x83, 0x81, 2, @_) }
+sub addcarry8_const_to_mem  { shift->_append_mathop8_const_to_mem (0x80, 2, @_) }
 
 =back
 
