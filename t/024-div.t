@@ -74,5 +74,15 @@ use Log::Any::Adapter 'TAP';
 		\@out, sub { new_writer->div8s_mem(@_)->bytes }
 	);
 	asm_ok(\@out, \@asm, 'div8');
+	
+subtest sign_extend => \&sign_extend;
+sub sign_extend {
+	@asm= (); @out= ();
+	for (qw( cbw cwde cdqe cwd cdq cqo )) {
+		push @asm, $_;
+		push @out, new_writer->$_()->bytes;
+	}
+	asm_ok(\@out, \@asm, 'sign-extend for div');
+}
 
 done_testing;

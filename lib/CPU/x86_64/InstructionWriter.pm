@@ -974,6 +974,46 @@ sub div32s_mem { shift->_append_op32_reg_mem(0, 0xF7, 7, @_) }
 sub div16s_mem { shift->_append_op16_reg_mem(0, 0xF7, 7, @_) }
 sub div8s_mem  { shift->_append_op8_opreg_mem(0, 0xF6, 7, @_) }
 
+=head2 sign extend
+
+Various special-purpose sign extension instructions, mostly used to set up for DIV
+
+=over
+
+=item sign_extend_al_ax, cbw
+
+=item sign_extend_ax_eax, cwde
+
+=item sign_extend_eax_rax, cdqe
+
+=item sign_extend_ax_dx, cwd
+
+=item sign_extend_eax_edx, cdq
+
+=item sign_extend_rax_rdx, cqo
+
+=cut
+
+sub sign_extend_al_ax { $_[0]{_buf} .= "\x66\x98"; $_[0] }
+*cbw= *sign_extend_al_ax;
+
+sub sign_extend_ax_eax { $_[0]{_buf} .= "\x98"; $_[0] }
+*cwde= *sign_extend_ax_eax;
+
+sub sign_extend_eax_rax { $_[0]{_buf} .= "\x48\x98"; $_[0] }
+*cdqe= *sign_extend_eax_rax;
+
+sub sign_extend_ax_dx { $_[0]{_buf} .= "\x66\x99"; $_[0] }
+*cwd= *sign_extend_ax_dx;
+
+sub sign_extend_eax_edx { $_[0]{_buf} .= "\x99"; $_[0] }
+*cdq= *sign_extend_eax_edx;
+
+sub sign_extend_rax_rdx { $_[0]{_buf} .= "\x48\x99"; $_[0] }
+*cqo= *sign_extend_rax_rdx;
+
+=back
+
 =head2 flag modifiers
 
 Each flag modifier takes an argument of 0 (clear), 1 (set), or -1 (invert).
