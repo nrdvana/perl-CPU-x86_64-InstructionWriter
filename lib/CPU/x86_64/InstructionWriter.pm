@@ -475,7 +475,7 @@ sub _encode_mov64_imm {
 			: pack('CL<', 0xB8 + $reg, $immed);
 	}
 	# If the number can sign-extend from 32-bits, encode as 32-bit sign-extend
-	elsif (($immed >> 32) == -1) {
+	elsif (($immed >> 31) == -1) {
 		return pack('CCCl<', 0x48 | (($reg & 8) >> 3), 0xC7, 0xC0 + ($reg & 7), $immed);
 	}
 	# else encode as new 64-bit immediate
