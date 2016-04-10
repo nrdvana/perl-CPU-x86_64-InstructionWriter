@@ -268,7 +268,7 @@ sub jmp {
 	$self;
 }
 
-=item C<jmp_abs($reg)>
+=item C<jmp_abs_reg($reg)>
 
 Jump to the absolute address contained in a register.
 
@@ -449,7 +449,7 @@ sub mov64_reg { shift->_append_op64_reg_reg(0x89, $_[1], $_[0]) }
 
 Copy 64-bit value in register (first param) to a L</memory location>.
 
-=item C<mov64_from_mem($reg, $base_reg, $offset, $index_reg, $index_scale)>
+=item C<mov64_mem($reg, $base_reg, $offset, $index_reg, $index_scale)>
 
 Copy 64-bit value at L</memory location> (second params) into register (first param).
 
@@ -468,6 +468,7 @@ sub mov8_mem  { shift->_append_op8_reg_mem(0, 0x8A, @_); }
 =item C<mov64_const($dest_reg, $constant)>
 
 Load a constant value into a 64-bit register.  Constant is sign-extended to 64-bits.
+Constant may be an expression.
 
 =cut
 
@@ -587,6 +588,8 @@ sub add8_const_to_mem  { shift->_append_mathop8_const_to_mem (0x80, 0, @_) }
 =item C<addcarry##_const(reg64, const)>
 
 =item C<addcarry##_const_to_mem(const, base_reg64, displacement, index_reg64, scale)>
+
+=back
 
 =cut
 
@@ -743,6 +746,28 @@ sub xor64_const_to_mem { shift->_append_mathop64_const_to_mem(0x83, 0x81, 6, @_)
 sub xor32_const_to_mem { shift->_append_mathop32_const_to_mem(0x83, 0x81, 6, @_) }
 sub xor16_const_to_mem { shift->_append_mathop16_const_to_mem(0x83, 0x81, 6, @_) }
 sub xor8_const_to_mem  { shift->_append_mathop8_const_to_mem (0x80, 6, @_) }
+
+=head2 BSWAP
+
+Swap byte order on 32 or 64 bits.
+
+=over
+
+=item bswap64
+
+=item bswap32
+
+=item bswap16
+
+(This is actually the XCHG instruction)
+
+=cut
+
+# TODO
+
+=back
+
+=head2 
 
 =back
 
@@ -974,6 +999,53 @@ sub div32s_mem { shift->_append_op32_reg_mem(0, 0xF7, 7, @_) }
 sub div16s_mem { shift->_append_op16_reg_mem(0, 0xF7, 7, @_) }
 sub div8s_mem  { shift->_append_op8_opreg_mem(0, 0xF6, 7, @_) }
 
+=head2 MUL
+
+=over
+
+=item mul64s_dxax_reg
+
+=item mul32s_dxax_reg
+
+=item mul16s_dxax_reg
+
+=item mul8s_ax_reg
+
+=item mul64s_reg
+
+=item mul32s_reg
+
+=item mul16s_reg
+
+=item mul64s_mem
+
+=item mul32s_mem
+
+=item mul16s_mem
+
+=item mul64s_const_reg
+
+=item mul32s_const_reg
+
+=item mul16s_const_reg
+
+=item mul64s_const_mem
+
+=item mul32s_const_mem
+
+=item mul16s_const_mem
+
+=back
+
+=cut
+
+sub mul64s_dxax_reg { shift->_append_op64_reg_reg(8, 0xF7, 5, @_) }
+sub mul32s_dxax_reg { shift->_append_op32_reg_reg(0, 0xF7, 5, @_) }
+sub mul16s_dxax_reg { shift->_append_op16_reg_reg(0, 0xF7, 5, @_) }
+sub mul8s_ax_reg    { shift->_append_op8_reg_reg (0, 0xF6, 5, @_) }
+
+#sub mul64s_reg { shift->_append_op64_reg_reg(8, 
+
 =head2 sign extend
 
 Various special-purpose sign extension instructions, mostly used to set up for DIV
@@ -1039,6 +1111,18 @@ sub flag_direction { $_[0]{_buf} .= $_direction_flag_op[$_[1]]; $_[0] }
 sub cld { $_[0]{_buf} .= "\xFC"; $_[0] }
 sub std { $_[0]{_buf} .= "\xFD"; $_[0] }
 
+=head2 CALL
+
+=head2 ENTER
+
+=cut
+
+sub call { ... }
+
+sub enter { ... }
+
+# TODO
+
 =head2 syscall
 
 Syscall instruction, takes no arguments.  (params are stored in pre-defined registers)
@@ -1049,6 +1133,55 @@ sub syscall {
 	$_[0]{_buf} .= "\x0F\x05";
 	$_[0];
 }
+
+=head1 STRING INSTRUCTIONS
+
+=head2 cmpNN_str
+
+=over
+
+=item strcmp64, cmpsq
+
+=item strcmp32, cmpsd
+
+=item strcmp16, cmpsw
+
+=item strcmp8, cmpsb
+
+=cut
+
+sub strcmp64 { $_[0]{_buf}.= "\x48\xA7"; $_[0] }
+*cmpsq= *strcmp64;
+
+sub strcmp32 { $_[0]{_buf}.= "\xA7"; $_[0] }
+*cmpsd= *strcmp32;
+
+sub strcmp16 { $_[0]{_buf}.= "\x66\xA7"; $_[0] }
+*cmpsw= *strcmp16;
+
+sub strcmp8  { $_[0]{_buf}.= "\xA6"; $_[0] }
+*cmpsb= *strcmp8;
+
+=head1 SYNCHRONIZATION INSTRUCTIONS
+
+These special-purpose instructions relate to strict ordering of memory operations, cache flushing,
+or atomic operations useful for implementing semaphores.
+
+=head2 compare_exchangeNN, cmpxchg
+
+=over
+
+=item compare_exchange64
+
+=item compare_exchange32
+
+=item compare_exchange16
+
+=item compare_exchange8
+
+=back
+
+TODO
 
 =head2 mfence, lfence, sfence
 
@@ -1070,6 +1203,11 @@ sub sfence {
 	$_[0]{_buf} .= "\x0F\xAE\xF8";
 	$_[0];
 }
+
+sub cache_flush {
+	...;
+}
+*clflush= *cache_flush;
 
 =head1 ENCODING x86_64 INSTRUCTIONS
 
