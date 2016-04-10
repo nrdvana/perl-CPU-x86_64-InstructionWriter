@@ -14,20 +14,19 @@ use CPU::x86_64::InstructionWriter::Unknown;
     ->bytes;
 
   # if (x == 1) { ++x } else { ++y }
-  my ($else, $end);
   my $machine_code= CPU::x86_64::InstructionWriter->new
-    ->cmp64_reg_imm( 'RAX', 0 )
-    ->jne($else)        # jump to not-yet-defined label
-    ->inc( 'RAX' )
-    ->jmp($end)         # jump to another not-yet-defined label
-    ->mark($else)       # resolve previous jump to this address
-    ->inc( 'RCX' )
-    ->mark($end)        # resolve second jump to this address
+    ->cmp64_const( 'RAX', 0 )
+    ->jne('else')        # jump to not-yet-defined label
+    ->inc64_reg( 'RAX' )
+    ->jmp('end')         # jump to another not-yet-defined label
+    ->mark('else')       # resolve previous jump to this address
+    ->inc64_reg( 'RCX' )
+    ->mark('end')        # resolve second jump to this address
     ->bytes;
 
 =head1 DESCRIPTION
 
-The purpose of this module is to relatively efficiently assemble instructions for the x86_64
+The purpose of this module is to relatively efficiently assemble instructions for the x86-64
 without generating and re-parsing assembly language, or shelling out to an external tool.
 All instructions are assumed to be for the 64-bit mode of the processor.  Functionality for
 real mode or segmented 16-bit mode will be handled by the yet-to-be-written x86 module.
@@ -36,12 +35,13 @@ This module consists of a bunch of chainable methods which build a string of mac
 you call them.  It supports lazy-resolved jump labels, and lazy-bound constants which can be
 assigned a value after the instructions have been assembled.
 
+B<Note:> This module currently requires a perl with 64-bit integers and C<pack('Q')> support.
+
 =cut
 
 (0x7FFFFFFE << 31) > 0 && (0x7FFFFFFE << 63) == 0
 	or die "Author is lazy and requires 64-bit perl integers\n";
 no warnings 'portable';
-
 
 my @byte_registers= qw( AH AL BH BL CH CL DH DL SPL BPL SIL DIL R8B R9B R10B R11B R12B R13B R14B R15B );
 my %byte_register_alias= ( map {; "R${_}L" => "R${_}B" } 8..15 );
@@ -117,7 +117,10 @@ has _buf                  => ( is => 'rw', default => sub { '' } );
 has _unresolved           => ( is => 'rw', default => sub { [] } );
 has labels                => ( is => 'rw', default => sub {; {} } );
 
-=head2 C<get_label()>, C<get_label($name)>
+=head2 get_label
+
+  my $label= $writer->get_label($name); # label-by-name, created on demand
+  my $label= $writer->get_label();      # new anonymous label
 
 Return a label object for the given name, or if no name is given, return an anonymous label.
 
@@ -131,11 +134,20 @@ is defined.
 sub get_label {
 	my ($self, $name)= @_;
 	my $labels= $self->labels;
-	$name //= '__auto_'.(scalar keys %$labels);
-	$labels->{$name} //= { name => $name };
+	unless (defined $name && defined $labels->{$name}) {
+		my $label= {};
+		$name= "$label" unless defined $name;
+		$label->{name}= $name;
+		$labels->{$name}= $label;
+	}
+	$labels->{$name};
 }
 
-=head2 C<mark($label_name)>, C<mark($undef_var)>, C<mark($label_ref)>
+=head2 mark
+
+  ->mark($label_ref)  # bind label object to current position
+  ->mark($undef_var)  # like above, but create anonymous label object and assign to $var
+  ->mark($label_name) # like above, but create/lookup label object by name
 
 Bind a named label to the current position in the instruction buffer.  You can also pass a label
 reference from L</get_label>, or an undef variable which will be assigned a label.
@@ -173,7 +185,7 @@ sub mark {
 =head2 bytes
 
 Return the assembled instructions as a string of bytes.  This will fail if any of the labels were
-left un-marked or if unknown placeholders have not been resolved.
+left un-marked or if any expressions can't be evaluated.
 
 =cut
 
@@ -247,8 +259,7 @@ sub jmp {
 			my ($self, $params)= @_;
 			defined $label->{start} or croak "Label $label is not marked";
 			my $ofs= $label->{start} - ($params->{start}+$params->{len});
-			my $short= (($ofs>>7) == ($ofs>>8)); 
-			# We rely on the calc_size() getting called before encode
+			my $short= (($ofs>>7) == ($ofs>>8));
 			return $short?
 				pack('Cc', 0xEB, $ofs)
 				: pack('CV', 0xE9, $ofs);
