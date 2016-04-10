@@ -8,14 +8,14 @@ use CPU::x86_64::InstructionWriter::Unknown;
 
   # POSIX::exit(42);
   my $machine_code= CPU::x86_64::InstructionWriter->new
-    ->mov64_imm( 'RAX', 60 )
-    ->mov64_imm( 'RDI', 42 )
+    ->mov64_reg_imm( 'RAX', 60 )
+    ->mov64_reg_imm( 'RDI', 42 )
     ->syscall()
     ->bytes;
 
   # if (x == 1) { ++x } else { ++y }
   my $machine_code= CPU::x86_64::InstructionWriter->new
-    ->cmp64_const( 'RAX', 0 )
+    ->cmp64_reg_imm( 'RAX', 0 )
     ->jne('else')        # jump to not-yet-defined label
     ->inc64_reg( 'RAX' )
     ->jmp('end')         # jump to another not-yet-defined label
@@ -282,15 +282,14 @@ sub jmp_abs_reg {
 	$self;
 }
 
-=item C<jmp_abs_mem($base_reg, $displacement, $index_reg, $scale)>
+=item C<jmp_abs_mem(\@mem)>
 
-Jump to the absolute address read from a memory location
+Jump to the absolute address read from a L</memory location>
 
 =cut
 
 sub jmp_abs_mem {
-	#my ($self, $base_reg, $disp, $index_reg, $scale)= @_;
-	shift->_append_op64_reg_mem(0, 0xFF, 4, @_);
+	$_[0]->_append_op64_reg_mem(0, 0xFF, 4, @{$_[1]});
 }
 
 =item jmp_if_eq, je, jz
@@ -437,42 +436,42 @@ sub loopnz      { shift->_append_jmp_cx(0xE0, shift) }
 
 =over
 
-=item C<mov64_reg($dest_reg, $src_reg)>
+=item C<mov64_reg_reg($dest_reg, $src_reg)>
 
 Copy second register to first register.  Copies full 64-bit value.
 
 =cut
 
-sub mov64_reg { shift->_append_op64_reg_reg(0x89, $_[1], $_[0]) }
+sub mov64_reg_reg { shift->_append_op64_reg_reg(0x89, $_[1], $_[0]) }
 
-=item C<mov64_to_mem($reg, $base_reg, $offset, $index_reg, $index_scale)>
+=item C<mov##_mem_reg($mem, $reg)>
 
-Copy 64-bit value in register (first param) to a L</memory location>.
+Store ##-bit value in register to a L</memory location>.
 
-=item C<mov64_mem($reg, $base_reg, $offset, $index_reg, $index_scale)>
+=item C<mov##_reg_mem($reg, $mem)>
 
-Copy 64-bit value at L</memory location> (second params) into register (first param).
+Load ##-bit value at L</memory location> into register.
 
 =cut
 
-sub mov64_to_mem   { shift->_append_op64_reg_mem(8, 0x89, @_); }
-sub mov32_to_mem   { shift->_append_op32_reg_mem(0, 0x89, @_); }
-sub mov16_to_mem   { shift->_append_op16_reg_mem(0, 0x89, @_); }
-sub mov8_to_mem    { shift->_append_op8_reg_mem(0, 0x88, @_); }
+sub mov64_mem_reg { $_[0]->_append_op64_reg_mem(8, 0x89, $_[2], @{$_[1]}); }
+sub mov32_mem_reg { $_[0]->_append_op32_reg_mem(0, 0x89, $_[2], @{$_[1]}); }
+sub mov16_mem_reg { $_[0]->_append_op16_reg_mem(0, 0x89, $_[2], @{$_[1]}); }
+sub mov8_mem_reg  { $_[0]->_append_op8_reg_mem (0, 0x88, $_[2], @{$_[1]}); }
 
-sub mov64_mem { shift->_append_op64_reg_mem(8, 0x8B, @_); }
-sub mov32_mem { shift->_append_op32_reg_mem(0, 0x8B, @_); }
-sub mov16_mem { shift->_append_op16_reg_mem(0, 0x8B, @_); }
-sub mov8_mem  { shift->_append_op8_reg_mem(0, 0x8A, @_); }
+sub mov64_reg_mem { $_[0]->_append_op64_reg_mem(8, 0x8B, $_[1], @{$_[2]}); }
+sub mov32_reg_mem { $_[0]->_append_op32_reg_mem(0, 0x8B, $_[1], @{$_[2]}); }
+sub mov16_reg_mem { $_[0]->_append_op16_reg_mem(0, 0x8B, $_[1], @{$_[2]}); }
+sub mov8_reg_mem  { $_[0]->_append_op8_reg_mem (0, 0x8A, $_[1], @{$_[2]}); }
 
-=item C<mov64_const($dest_reg, $constant)>
+=item C<mov64_reg_imm($dest_reg, $constant)>
 
 Load a constant value into a 64-bit register.  Constant is sign-extended to 64-bits.
 Constant may be an expression.
 
 =cut
 
-sub mov64_const {
+sub mov64_reg_imm {
 	my ($self, $reg, $immed)= @_;
 	$reg= $regnum64{$reg} // croak("$reg is not a 64-bit register");
 	$self->_append_possible_unknown('_encode_mov64_imm', [$reg, $immed], 1, 10);
@@ -495,14 +494,14 @@ sub _encode_mov64_imm {
 		return pack('CCQ<', 0x48 | (($reg & 8) >> 3), 0xB8 + ($reg & 7), $immed);
 	}
 }
-sub mov32_const {
+sub mov32_reg_imm {
 	my ($self, $reg, $immed)= @_;
 	$reg= $regnum32{$reg} // croak("$reg is not a 32-bit register");
 	$self->{_buf} .= "\x41" if $reg > 7;
 	$self->{_buf} .= pack('C' , 0xB8 | ($reg & 7));
 	$self->_append_possible_unknown(sub { pack('V', $_[1]) }, [$immed], 0, 4);
 }
-sub mov16_const {
+sub mov16_reg_imm {
 	my ($self, $reg, $immed)= @_;
 	$reg= $regnum16{$reg} // croak("$reg is not a 16-bit register");
 	$self->{_buf} .= "\x66";
@@ -510,7 +509,7 @@ sub mov16_const {
 	$self->{_buf} .= pack('C', 0xB8 | ($reg & 7));
 	$self->_append_possible_unknown(sub { pack('v', $_[1]) }, [$immed], 0, 2);
 }
-sub mov8_const {
+sub mov8_reg_imm {
 	my ($self, $reg, $immed)= @_;
 	$reg= $regnum8{$reg};
 	# Special case for the high-byte registers available without the REX prefix
@@ -523,10 +522,18 @@ sub mov8_const {
 	$self->_append_possible_unknown(sub { pack('C', $_[1]&0xFF) }, [$immed], 0, 1);
 }
 
-sub mov64_const_to_mem { shift->_append_op64_const_mem(0xC7, 0, @_) }
-sub mov32_const_to_mem { shift->_append_op32_const_mem(0xC7, 0, @_) }
-sub mov16_const_to_mem { shift->_append_op16_const_mem(0xC7, 0, @_) }
-sub mov8_const_to_mem  { shift->_append_op8_const_mem (0xC6, 0, @_) }
+=item C<mov##_mem_imm($mem, $constant)>
+
+Store a constant value into a ##-bit memory location.
+For mov64, constant is sign-extended to 64-bits.
+Constant may be an expression.
+
+=cut
+
+sub mov64_mem_imm { $_[0]->_append_op64_const_mem(0xC7, 0, $_[2], @{$_[1]}) }
+sub mov32_mem_imm { $_[0]->_append_op32_const_mem(0xC7, 0, $_[2], @{$_[1]}) }
+sub mov16_mem_imm { $_[0]->_append_op16_const_mem(0xC7, 0, $_[2], @{$_[1]}) }
+sub mov8_mem_imm  { $_[0]->_append_op8_const_mem (0xC6, 0, $_[2], @{$_[1]}) }
 
 =back
 
@@ -542,42 +549,42 @@ multi-word addition.
 
 =over
 
-=item C<add##_reg(reg64, reg64)>
+=item C<add##_reg_reg($dest, $src)>
 
-=item C<add##_mem(reg64, base_reg64, displacement, index_reg64, scale)>
+=item C<add##_reg_mem($reg, \@mem)>
 
-=item C<add##_to_mem(reg64, base_reg64, displacement, index_reg64, scale)>
+=item C<add##_mem_reg(\@mem, $reg)>
 
-=item C<add##_const(reg64, const)>
+=item C<add##_reg_imm($reg, $const)>
 
-=item C<add##_const_to_mem(const, base_reg64, displacement, index_reg64, scale)>
+=item C<add##_mem_imm(\@mem, $const)>
 
 =cut
 
-sub add64_reg { $_[0]->_append_op64_reg_reg(0x01, $_[2], $_[1]) }
-sub add32_reg { $_[0]->_append_op32_reg_reg(0x01, $_[2], $_[1]) }
-sub add16_reg { $_[0]->_append_op16_reg_reg(0x01, $_[2], $_[1]) }
-sub add8_reg  { $_[0]->_append_op8_reg_reg (0x00, $_[2], $_[1]) }
+sub add64_reg_reg { $_[0]->_append_op64_reg_reg(0x01, $_[2], $_[1]) }
+sub add32_reg_reg { $_[0]->_append_op32_reg_reg(0x01, $_[2], $_[1]) }
+sub add16_reg_reg { $_[0]->_append_op16_reg_reg(0x01, $_[2], $_[1]) }
+sub add8_reg_reg  { $_[0]->_append_op8_reg_reg (0x00, $_[2], $_[1]) }
 
-sub add64_mem { shift->_append_op64_reg_mem(8, 0x03, @_); }
-sub add32_mem { shift->_append_op32_reg_mem(0, 0x03, @_); }
-sub add16_mem { shift->_append_op16_reg_mem(0, 0x03, @_); }
-sub add8_mem  { shift->_append_op8_reg_mem (0, 0x02, @_); }
+sub add64_reg_mem { $_[0]->_append_op64_reg_mem(8, 0x03, $_[1], @{$_[2]}); }
+sub add32_reg_mem { $_[0]->_append_op32_reg_mem(0, 0x03, $_[1], @{$_[2]}); }
+sub add16_reg_mem { $_[0]->_append_op16_reg_mem(0, 0x03, $_[1], @{$_[2]}); }
+sub add8_reg_mem  { $_[0]->_append_op8_reg_mem (0, 0x02, $_[1], @{$_[2]}); }
 
-sub add64_to_mem { shift->_append_op64_reg_mem(8, 0x01, @_); }
-sub add32_to_mem { shift->_append_op32_reg_mem(0, 0x01, @_); }
-sub add16_to_mem { shift->_append_op16_reg_mem(0, 0x01, @_); }
-sub add8_to_mem  { shift->_append_op8_reg_mem (0, 0x00, @_); }
+sub add64_mem_reg { $_[0]->_append_op64_reg_mem(8, 0x01, $_[2], @{$_[1]}); }
+sub add32_mem_reg { $_[0]->_append_op32_reg_mem(0, 0x01, $_[2], @{$_[1]}); }
+sub add16_mem_reg { $_[0]->_append_op16_reg_mem(0, 0x01, $_[2], @{$_[1]}); }
+sub add8_mem_reg  { $_[0]->_append_op8_reg_mem (0, 0x00, $_[2], @{$_[1]}); }
 
-sub add64_const { shift->_append_mathop64_const(0x05, 0x83, 0x81, 0, @_) }
-sub add32_const { shift->_append_mathop32_const(0x05, 0x83, 0x81, 0, @_) }
-sub add16_const { shift->_append_mathop16_const(0x05, 0x83, 0x81, 0, @_) }
-sub add8_const  { shift->_append_mathop8_const (0x04, 0x80, 0, @_) }
+sub add64_reg_imm { shift->_append_mathop64_const(0x05, 0x83, 0x81, 0, @_) }
+sub add32_reg_imm { shift->_append_mathop32_const(0x05, 0x83, 0x81, 0, @_) }
+sub add16_reg_imm { shift->_append_mathop16_const(0x05, 0x83, 0x81, 0, @_) }
+sub add8_reg_imm  { shift->_append_mathop8_const (0x04, 0x80, 0, @_) }
 
-sub add64_const_to_mem { shift->_append_mathop64_const_to_mem(0x83, 0x81, 0, @_) }
-sub add32_const_to_mem { shift->_append_mathop32_const_to_mem(0x83, 0x81, 0, @_) }
-sub add16_const_to_mem { shift->_append_mathop16_const_to_mem(0x83, 0x81, 0, @_) }
-sub add8_const_to_mem  { shift->_append_mathop8_const_to_mem (0x80, 0, @_) }
+sub add64_mem_imm { $_[0]->_append_mathop64_const_to_mem(0x83, 0x81, 0, $_[2], @{$_[1]}) }
+sub add32_mem_imm { $_[0]->_append_mathop32_const_to_mem(0x83, 0x81, 0, $_[2], @{$_[1]}) }
+sub add16_mem_imm { $_[0]->_append_mathop16_const_to_mem(0x83, 0x81, 0, $_[2], @{$_[1]}) }
+sub add8_mem_imm  { $_[0]->_append_mathop8_const_to_mem (0x80, 0, $_[2], @{$_[1]}) }
 
 =item C<addcarry##_reg(reg64, reg64)>
 
@@ -593,73 +600,73 @@ sub add8_const_to_mem  { shift->_append_mathop8_const_to_mem (0x80, 0, @_) }
 
 =cut
 
-sub addcarry64_reg { $_[0]->_append_op64_reg_reg(0x11, $_[2], $_[1]) }
-sub addcarry32_reg { $_[0]->_append_op32_reg_reg(0x11, $_[2], $_[1]) }
-sub addcarry16_reg { $_[0]->_append_op16_reg_reg(0x11, $_[2], $_[1]) }
-sub addcarry8_reg  { $_[0]->_append_op8_reg_reg (0x10, $_[2], $_[1]) }
+sub addcarry64_reg_reg { $_[0]->_append_op64_reg_reg(0x11, $_[2], $_[1]) }
+sub addcarry32_reg_reg { $_[0]->_append_op32_reg_reg(0x11, $_[2], $_[1]) }
+sub addcarry16_reg_reg { $_[0]->_append_op16_reg_reg(0x11, $_[2], $_[1]) }
+sub addcarry8_reg_reg  { $_[0]->_append_op8_reg_reg (0x10, $_[2], $_[1]) }
 
-sub addcarry64_mem { shift->_append_op64_reg_mem(8, 0x13, @_); }
-sub addcarry32_mem { shift->_append_op32_reg_mem(0, 0x13, @_); }
-sub addcarry16_mem { shift->_append_op16_reg_mem(0, 0x13, @_); }
-sub addcarry8_mem  { shift->_append_op8_reg_mem (0, 0x12, @_); }
+sub addcarry64_reg_mem { $_[0]->_append_op64_reg_mem(8, 0x13, $_[1], @{$_[2]}); }
+sub addcarry32_reg_mem { $_[0]->_append_op32_reg_mem(0, 0x13, $_[1], @{$_[2]}); }
+sub addcarry16_reg_mem { $_[0]->_append_op16_reg_mem(0, 0x13, $_[1], @{$_[2]}); }
+sub addcarry8_reg_mem  { $_[0]->_append_op8_reg_mem (0, 0x12, $_[1], @{$_[2]}); }
 
-sub addcarry64_to_mem { shift->_append_op64_reg_mem(8, 0x11, @_); }
-sub addcarry32_to_mem { shift->_append_op32_reg_mem(0, 0x11, @_); }
-sub addcarry16_to_mem { shift->_append_op16_reg_mem(0, 0x11, @_); }
-sub addcarry8_to_mem  { shift->_append_op8_reg_mem (0, 0x10, @_); }
+sub addcarry64_mem_reg { $_[0]->_append_op64_reg_mem(8, 0x11, $_[2], @{$_[1]}); }
+sub addcarry32_mem_reg { $_[0]->_append_op32_reg_mem(0, 0x11, $_[2], @{$_[1]}); }
+sub addcarry16_mem_reg { $_[0]->_append_op16_reg_mem(0, 0x11, $_[2], @{$_[1]}); }
+sub addcarry8_mem_reg  { $_[0]->_append_op8_reg_mem (0, 0x10, $_[2], @{$_[1]}); }
 
-sub addcarry64_const { shift->_append_mathop64_const(0x15, 0x83, 0x81, 2, @_) }
-sub addcarry32_const { shift->_append_mathop32_const(0x15, 0x83, 0x81, 2, @_) }
-sub addcarry16_const { shift->_append_mathop16_const(0x15, 0x83, 0x81, 2, @_) }
-sub addcarry8_const  { shift->_append_mathop8_const (0x14, 0x80, 2, @_) }
+sub addcarry64_reg_imm { shift->_append_mathop64_const(0x15, 0x83, 0x81, 2, @_) }
+sub addcarry32_reg_imm { shift->_append_mathop32_const(0x15, 0x83, 0x81, 2, @_) }
+sub addcarry16_reg_imm { shift->_append_mathop16_const(0x15, 0x83, 0x81, 2, @_) }
+sub addcarry8_reg_imm  { shift->_append_mathop8_const (0x14, 0x80, 2, @_) }
 
-sub addcarry64_const_to_mem { shift->_append_mathop64_const_to_mem(0x83, 0x81, 2, @_) }
-sub addcarry32_const_to_mem { shift->_append_mathop32_const_to_mem(0x83, 0x81, 2, @_) }
-sub addcarry16_const_to_mem { shift->_append_mathop16_const_to_mem(0x83, 0x81, 2, @_) }
-sub addcarry8_const_to_mem  { shift->_append_mathop8_const_to_mem (0x80, 2, @_) }
+sub addcarry64_mem_imm { $_[0]->_append_mathop64_const_to_mem(0x83, 0x81, 2, $_[2], @{$_[1]}) }
+sub addcarry32_mem_imm { $_[0]->_append_mathop32_const_to_mem(0x83, 0x81, 2, $_[2], @{$_[1]}) }
+sub addcarry16_mem_imm { $_[0]->_append_mathop16_const_to_mem(0x83, 0x81, 2, $_[2], @{$_[1]}) }
+sub addcarry8_mem_imm  { $_[0]->_append_mathop8_const_to_mem (0x80, 2, $_[2], @{$_[1]}) }
 
 =head2 AND
 
 =over
 
-=item C<and##_reg(reg64, reg64)>
+=item C<and##_reg_reg($dest, $src)>
 
-=item C<and##_mem(reg64, base_reg64, displacement, index_reg64, scale)>
+=item C<and##_reg_mem($reg, \@mem)>
 
-=item C<and##_to_mem(reg64, base_reg64, displacement, index_reg64, scale)>
+=item C<and##_mem_reg(\@mem, $reg)>
 
-=item C<and##_const(reg64, const)>
+=item C<and##_reg_imm($reg, $const)>
 
-=item C<and##_const_to_mem(const, base_reg64, displacement, index_reg64, scale)>
+=item C<and##_mem_imm(\@mem, $const)>
 
 =back
 
 =cut
 
-sub and64_reg { $_[0]->_append_op64_reg_reg(0x21, $_[2], $_[1]) }
-sub and32_reg { $_[0]->_append_op32_reg_reg(0x21, $_[2], $_[1]) }
-sub and16_reg { $_[0]->_append_op16_reg_reg(0x21, $_[2], $_[1]) }
-sub and8_reg  { $_[0]->_append_op8_reg_reg (0x20, $_[2], $_[1]) }
+sub and64_reg_reg { $_[0]->_append_op64_reg_reg(0x21, $_[2], $_[1]) }
+sub and32_reg_reg { $_[0]->_append_op32_reg_reg(0x21, $_[2], $_[1]) }
+sub and16_reg_reg { $_[0]->_append_op16_reg_reg(0x21, $_[2], $_[1]) }
+sub and8_reg_reg  { $_[0]->_append_op8_reg_reg (0x20, $_[2], $_[1]) }
 
-sub and64_mem { shift->_append_op64_reg_mem(8, 0x23, @_); }
-sub and32_mem { shift->_append_op32_reg_mem(0, 0x23, @_); }
-sub and16_mem { shift->_append_op16_reg_mem(0, 0x23, @_); }
-sub and8_mem  { shift->_append_op8_reg_mem (0, 0x22, @_); }
+sub and64_reg_mem { $_[0]->_append_op64_reg_mem(8, 0x23, $_[1], @{$_[2]}); }
+sub and32_reg_mem { $_[0]->_append_op32_reg_mem(0, 0x23, $_[1], @{$_[2]}); }
+sub and16_reg_mem { $_[0]->_append_op16_reg_mem(0, 0x23, $_[1], @{$_[2]}); }
+sub and8_reg_mem  { $_[0]->_append_op8_reg_mem (0, 0x22, $_[1], @{$_[2]}); }
 
-sub and64_to_mem { shift->_append_op64_reg_mem(8, 0x21, @_); }
-sub and32_to_mem { shift->_append_op32_reg_mem(0, 0x21, @_); }
-sub and16_to_mem { shift->_append_op16_reg_mem(0, 0x21, @_); }
-sub and8_to_mem  { shift->_append_op8_reg_mem (0, 0x20, @_); }
+sub and64_mem_reg { $_[0]->_append_op64_reg_mem(8, 0x21, $_[2], @{$_[1]}); }
+sub and32_mem_reg { $_[0]->_append_op32_reg_mem(0, 0x21, $_[2], @{$_[1]}); }
+sub and16_mem_reg { $_[0]->_append_op16_reg_mem(0, 0x21, $_[2], @{$_[1]}); }
+sub and8_mem_reg  { $_[0]->_append_op8_reg_mem (0, 0x20, $_[2], @{$_[1]}); }
 
-sub and64_const { shift->_append_mathop64_const(0x25, 0x83, 0x81, 4, @_) }
-sub and32_const { shift->_append_mathop32_const(0x25, 0x83, 0x81, 4, @_) }
-sub and16_const { shift->_append_mathop16_const(0x25, 0x83, 0x81, 4, @_) }
-sub and8_const  { shift->_append_mathop8_const (0x24, 0x80, 4, @_) }
+sub and64_reg_imm { shift->_append_mathop64_const(0x25, 0x83, 0x81, 4, @_) }
+sub and32_reg_imm { shift->_append_mathop32_const(0x25, 0x83, 0x81, 4, @_) }
+sub and16_reg_imm { shift->_append_mathop16_const(0x25, 0x83, 0x81, 4, @_) }
+sub and8_reg_imm  { shift->_append_mathop8_const (0x24, 0x80, 4, @_) }
 
-sub and64_const_to_mem { shift->_append_mathop64_const_to_mem(0x83, 0x81, 4, @_) }
-sub and32_const_to_mem { shift->_append_mathop32_const_to_mem(0x83, 0x81, 4, @_) }
-sub and16_const_to_mem { shift->_append_mathop16_const_to_mem(0x83, 0x81, 4, @_) }
-sub and8_const_to_mem  { shift->_append_mathop8_const_to_mem (0x80, 4, @_) }
+sub and64_mem_imm { $_[0]->_append_mathop64_const_to_mem(0x83, 0x81, 4, $_[2], @{$_[1]}) }
+sub and32_mem_imm { $_[0]->_append_mathop32_const_to_mem(0x83, 0x81, 4, $_[2], @{$_[1]}) }
+sub and16_mem_imm { $_[0]->_append_mathop16_const_to_mem(0x83, 0x81, 4, $_[2], @{$_[1]}) }
+sub and8_mem_imm  { $_[0]->_append_mathop8_const_to_mem (0x80, 4, $_[2], @{$_[1]}) }
 
 =head2 OR
 
@@ -679,30 +686,30 @@ sub and8_const_to_mem  { shift->_append_mathop8_const_to_mem (0x80, 4, @_) }
 
 =cut
 
-sub or64_reg { $_[0]->_append_op64_reg_reg(0x09, $_[2], $_[1]) }
-sub or32_reg { $_[0]->_append_op32_reg_reg(0x09, $_[2], $_[1]) }
-sub or16_reg { $_[0]->_append_op16_reg_reg(0x09, $_[2], $_[1]) }
-sub or8_reg  { $_[0]->_append_op8_reg_reg (0x08, $_[2], $_[1]) }
+sub or64_reg_reg { $_[0]->_append_op64_reg_reg(0x09, $_[2], $_[1]) }
+sub or32_reg_reg { $_[0]->_append_op32_reg_reg(0x09, $_[2], $_[1]) }
+sub or16_reg_reg { $_[0]->_append_op16_reg_reg(0x09, $_[2], $_[1]) }
+sub or8_reg_reg  { $_[0]->_append_op8_reg_reg (0x08, $_[2], $_[1]) }
 
-sub or64_mem { shift->_append_op64_reg_mem(8, 0x0B, @_); }
-sub or32_mem { shift->_append_op32_reg_mem(0, 0x0B, @_); }
-sub or16_mem { shift->_append_op16_reg_mem(0, 0x0B, @_); }
-sub or8_mem  { shift->_append_op8_reg_mem (0, 0x0A, @_); }
+sub or64_reg_mem { $_[0]->_append_op64_reg_mem(8, 0x0B, $_[1], @{$_[2]}); }
+sub or32_reg_mem { $_[0]->_append_op32_reg_mem(0, 0x0B, $_[1], @{$_[2]}); }
+sub or16_reg_mem { $_[0]->_append_op16_reg_mem(0, 0x0B, $_[1], @{$_[2]}); }
+sub or8_reg_mem  { $_[0]->_append_op8_reg_mem (0, 0x0A, $_[1], @{$_[2]}); }
 
-sub or64_to_mem { shift->_append_op64_reg_mem(8, 0x09, @_); }
-sub or32_to_mem { shift->_append_op32_reg_mem(0, 0x09, @_); }
-sub or16_to_mem { shift->_append_op16_reg_mem(0, 0x09, @_); }
-sub or8_to_mem  { shift->_append_op8_reg_mem (0, 0x08, @_); }
+sub or64_mem_reg { $_[0]->_append_op64_reg_mem(8, 0x09, $_[2], @{$_[1]}); }
+sub or32_mem_reg { $_[0]->_append_op32_reg_mem(0, 0x09, $_[2], @{$_[1]}); }
+sub or16_mem_reg { $_[0]->_append_op16_reg_mem(0, 0x09, $_[2], @{$_[1]}); }
+sub or8_mem_reg  { $_[0]->_append_op8_reg_mem (0, 0x08, $_[2], @{$_[1]}); }
 
-sub or64_const { shift->_append_mathop64_const(0x0D, 0x83, 0x81, 1, @_) }
-sub or32_const { shift->_append_mathop32_const(0x0D, 0x83, 0x81, 1, @_) }
-sub or16_const { shift->_append_mathop16_const(0x0D, 0x83, 0x81, 1, @_) }
-sub or8_const  { shift->_append_mathop8_const (0x0C, 0x80, 1, @_) }
+sub or64_reg_imm { shift->_append_mathop64_const(0x0D, 0x83, 0x81, 1, @_) }
+sub or32_reg_imm { shift->_append_mathop32_const(0x0D, 0x83, 0x81, 1, @_) }
+sub or16_reg_imm { shift->_append_mathop16_const(0x0D, 0x83, 0x81, 1, @_) }
+sub or8_reg_imm  { shift->_append_mathop8_const (0x0C, 0x80, 1, @_) }
 
-sub or64_const_to_mem { shift->_append_mathop64_const_to_mem(0x83, 0x81, 1, @_) }
-sub or32_const_to_mem { shift->_append_mathop32_const_to_mem(0x83, 0x81, 1, @_) }
-sub or16_const_to_mem { shift->_append_mathop16_const_to_mem(0x83, 0x81, 1, @_) }
-sub or8_const_to_mem  { shift->_append_mathop8_const_to_mem (0x80, 1, @_) }
+sub or64_mem_imm { $_[0]->_append_mathop64_const_to_mem(0x83, 0x81, 1, $_[2], @{$_[1]}) }
+sub or32_mem_imm { $_[0]->_append_mathop32_const_to_mem(0x83, 0x81, 1, $_[2], @{$_[1]}) }
+sub or16_mem_imm { $_[0]->_append_mathop16_const_to_mem(0x83, 0x81, 1, $_[2], @{$_[1]}) }
+sub or8_mem_imm  { $_[0]->_append_mathop8_const_to_mem (0x80, 1, $_[2], @{$_[1]}) }
 
 =head2 XOR
 
@@ -722,30 +729,30 @@ sub or8_const_to_mem  { shift->_append_mathop8_const_to_mem (0x80, 1, @_) }
 
 =cut
 
-sub xor64_reg { $_[0]->_append_op64_reg_reg(0x31, $_[2], $_[1]) }
-sub xor32_reg { $_[0]->_append_op32_reg_reg(0x31, $_[2], $_[1]) }
-sub xor16_reg { $_[0]->_append_op16_reg_reg(0x31, $_[2], $_[1]) }
-sub xor8_reg  { $_[0]->_append_op8_reg_reg (0x30, $_[2], $_[1]) }
+sub xor64_reg_reg { $_[0]->_append_op64_reg_reg(0x31, $_[2], $_[1]) }
+sub xor32_reg_reg { $_[0]->_append_op32_reg_reg(0x31, $_[2], $_[1]) }
+sub xor16_reg_reg { $_[0]->_append_op16_reg_reg(0x31, $_[2], $_[1]) }
+sub xor8_reg_reg  { $_[0]->_append_op8_reg_reg (0x30, $_[2], $_[1]) }
 
-sub xor64_mem { shift->_append_op64_reg_mem(8, 0x33, @_); }
-sub xor32_mem { shift->_append_op32_reg_mem(0, 0x33, @_); }
-sub xor16_mem { shift->_append_op16_reg_mem(0, 0x33, @_); }
-sub xor8_mem  { shift->_append_op8_reg_mem (0, 0x32, @_); }
+sub xor64_reg_mem { $_[0]->_append_op64_reg_mem(8, 0x33, $_[1], @{$_[2]}); }
+sub xor32_reg_mem { $_[0]->_append_op32_reg_mem(0, 0x33, $_[1], @{$_[2]}); }
+sub xor16_reg_mem { $_[0]->_append_op16_reg_mem(0, 0x33, $_[1], @{$_[2]}); }
+sub xor8_reg_mem  { $_[0]->_append_op8_reg_mem (0, 0x32, $_[1], @{$_[2]}); }
 
-sub xor64_to_mem { shift->_append_op64_reg_mem(8, 0x31, @_); }
-sub xor32_to_mem { shift->_append_op32_reg_mem(0, 0x31, @_); }
-sub xor16_to_mem { shift->_append_op16_reg_mem(0, 0x31, @_); }
-sub xor8_to_mem  { shift->_append_op8_reg_mem (0, 0x30, @_); }
+sub xor64_mem_reg { $_[0]->_append_op64_reg_mem(8, 0x31, $_[2], @{$_[1]}); }
+sub xor32_mem_reg { $_[0]->_append_op32_reg_mem(0, 0x31, $_[2], @{$_[1]}); }
+sub xor16_mem_reg { $_[0]->_append_op16_reg_mem(0, 0x31, $_[2], @{$_[1]}); }
+sub xor8_mem_reg  { $_[0]->_append_op8_reg_mem (0, 0x30, $_[2], @{$_[1]}); }
 
-sub xor64_const { shift->_append_mathop64_const(0x35, 0x83, 0x81, 6, @_) }
-sub xor32_const { shift->_append_mathop32_const(0x35, 0x83, 0x81, 6, @_) }
-sub xor16_const { shift->_append_mathop16_const(0x35, 0x83, 0x81, 6, @_) }
-sub xor8_const  { shift->_append_mathop8_const (0x34, 0x80, 6, @_) }
+sub xor64_reg_imm { shift->_append_mathop64_const(0x35, 0x83, 0x81, 6, @_) }
+sub xor32_reg_imm { shift->_append_mathop32_const(0x35, 0x83, 0x81, 6, @_) }
+sub xor16_reg_imm { shift->_append_mathop16_const(0x35, 0x83, 0x81, 6, @_) }
+sub xor8_reg_imm  { shift->_append_mathop8_const (0x34, 0x80, 6, @_) }
 
-sub xor64_const_to_mem { shift->_append_mathop64_const_to_mem(0x83, 0x81, 6, @_) }
-sub xor32_const_to_mem { shift->_append_mathop32_const_to_mem(0x83, 0x81, 6, @_) }
-sub xor16_const_to_mem { shift->_append_mathop16_const_to_mem(0x83, 0x81, 6, @_) }
-sub xor8_const_to_mem  { shift->_append_mathop8_const_to_mem (0x80, 6, @_) }
+sub xor64_mem_imm { $_[0]->_append_mathop64_const_to_mem(0x83, 0x81, 6, $_[2], @{$_[1]}) }
+sub xor32_mem_imm { $_[0]->_append_mathop32_const_to_mem(0x83, 0x81, 6, $_[2], @{$_[1]}) }
+sub xor16_mem_imm { $_[0]->_append_mathop16_const_to_mem(0x83, 0x81, 6, $_[2], @{$_[1]}) }
+sub xor8_mem_imm  { $_[0]->_append_mathop8_const_to_mem (0x80, 6, $_[2], @{$_[1]}) }
 
 =head2 BSWAP
 
@@ -777,52 +784,52 @@ Like SUB, but don't modify any arguments, just update RFLAGS.
 
 =over
 
-=item cmp##_reg
+=item C<cmp##_reg_reg($dest, $src)>
 
-=item cmp##_mem
+=item C<cmp##_reg_mem($reg, \@mem)>
 
 Subtract mem (second args) from reg (first arg)
 
-=item cmp##_mem_reg
+=item cmp##_mem_reg(\@mem, $reg);
 
 Subtract reg (first arg) from mem (second args)
 
-=item cmp##_const
+=item cmp##_reg_imm($reg, $const)
 
 Subtract const from reg
 
-=item cmp##_mem_const
+=item cmp##_mem_imm(\@mem, $const)
 
-Subtract const from mem
+Subtract const from contents of mem address
 
 =back
 
 =cut
 
-sub cmp64_reg { $_[0]->_append_op64_reg_reg(0x39, $_[2], $_[1]) }
-sub cmp32_reg { $_[0]->_append_op32_reg_reg(0x39, $_[2], $_[1]) }
-sub cmp16_reg { $_[0]->_append_op16_reg_reg(0x39, $_[2], $_[1]) }
-sub cmp8_reg  { $_[0]->_append_op8_reg_reg (0x38, $_[2], $_[1]) }
+sub cmp64_reg_reg { $_[0]->_append_op64_reg_reg(0x39, $_[2], $_[1]) }
+sub cmp32_reg_reg { $_[0]->_append_op32_reg_reg(0x39, $_[2], $_[1]) }
+sub cmp16_reg_reg { $_[0]->_append_op16_reg_reg(0x39, $_[2], $_[1]) }
+sub cmp8_reg_reg  { $_[0]->_append_op8_reg_reg (0x38, $_[2], $_[1]) }
 
-sub cmp64_mem { shift->_append_op64_reg_mem(8, 0x3B, @_); }
-sub cmp32_mem { shift->_append_op32_reg_mem(0, 0x3B, @_); }
-sub cmp16_mem { shift->_append_op16_reg_mem(0, 0x3B, @_); }
-sub cmp8_mem  { shift->_append_op8_reg_mem (0, 0x3A, @_); }
+sub cmp64_reg_mem { $_[0]->_append_op64_reg_mem(8, 0x3B, $_[1], @{$_[2]}); }
+sub cmp32_reg_mem { $_[0]->_append_op32_reg_mem(0, 0x3B, $_[1], @{$_[2]}); }
+sub cmp16_reg_mem { $_[0]->_append_op16_reg_mem(0, 0x3B, $_[1], @{$_[2]}); }
+sub cmp8_reg_mem  { $_[0]->_append_op8_reg_mem (0, 0x3A, $_[1], @{$_[2]}); }
 
-sub cmp64_mem_reg { shift->_append_op64_reg_mem(8, 0x39, @_); }
-sub cmp32_mem_reg { shift->_append_op32_reg_mem(0, 0x39, @_); }
-sub cmp16_mem_reg { shift->_append_op16_reg_mem(0, 0x39, @_); }
-sub cmp8_mem_reg  { shift->_append_op8_reg_mem (0, 0x38, @_); }
+sub cmp64_mem_reg { $_[0]->_append_op64_reg_mem(8, 0x39, $_[2], @{$_[1]}); }
+sub cmp32_mem_reg { $_[0]->_append_op32_reg_mem(0, 0x39, $_[2], @{$_[1]}); }
+sub cmp16_mem_reg { $_[0]->_append_op16_reg_mem(0, 0x39, $_[2], @{$_[1]}); }
+sub cmp8_mem_reg  { $_[0]->_append_op8_reg_mem (0, 0x38, $_[2], @{$_[1]}); }
 
-sub cmp64_const { shift->_append_mathop64_const(0x3D, 0x83, 0x81, 7, @_) }
-sub cmp32_const { shift->_append_mathop32_const(0x3D, 0x83, 0x81, 7, @_) }
-sub cmp16_const { shift->_append_mathop16_const(0x3D, 0x83, 0x81, 7, @_) }
-sub cmp8_const  { shift->_append_mathop8_const (0x3C, 0x80, 7, @_) }
+sub cmp64_reg_imm { shift->_append_mathop64_const(0x3D, 0x83, 0x81, 7, @_) }
+sub cmp32_reg_imm { shift->_append_mathop32_const(0x3D, 0x83, 0x81, 7, @_) }
+sub cmp16_reg_imm { shift->_append_mathop16_const(0x3D, 0x83, 0x81, 7, @_) }
+sub cmp8_reg_imm  { shift->_append_mathop8_const (0x3C, 0x80, 7, @_) }
 
-sub cmp64_mem_const { shift->_append_mathop64_const_to_mem(0x83, 0x81, 7, @_) }
-sub cmp32_mem_const { shift->_append_mathop32_const_to_mem(0x83, 0x81, 7, @_) }
-sub cmp16_mem_const { shift->_append_mathop16_const_to_mem(0x83, 0x81, 7, @_) }
-sub cmp8_mem_const  { shift->_append_mathop8_const_to_mem (0x80, 7, @_) }
+sub cmp64_mem_imm { $_[0]->_append_mathop64_const_to_mem(0x83, 0x81, 7, $_[2], @{$_[1]}) }
+sub cmp32_mem_imm { $_[0]->_append_mathop32_const_to_mem(0x83, 0x81, 7, $_[2], @{$_[1]}) }
+sub cmp16_mem_imm { $_[0]->_append_mathop16_const_to_mem(0x83, 0x81, 7, $_[2], @{$_[1]}) }
+sub cmp8_mem_imm  { $_[0]->_append_mathop8_const_to_mem (0x80, 7, $_[2], @{$_[1]}) }
 
 =head2 TEST
 
@@ -831,81 +838,81 @@ Note that order of arguments does not matter, and there is no "to_mem" variant.
 
 =over
 
-=item cmp##_reg
+=item C<test##_reg_reg($dest, $src)>
 
-=item cmp##_mem
+=item C<test##_reg_mem($reg, \@mem)>
 
-=item cmp##_const
+=item C<test##_reg_imm($reg, $const)>
 
-=item cmp##_const_mem
+=item C<test##_mem_imm(\@mem, $const)>
 
 =back
 
 =cut
 
-sub test64_reg { $_[0]->_append_op64_reg_reg(0x85, $_[2], $_[1]) }
-sub test32_reg { $_[0]->_append_op32_reg_reg(0x85, $_[2], $_[1]) }
-sub test16_reg { $_[0]->_append_op16_reg_reg(0x85, $_[2], $_[1]) }
-sub test8_reg  { $_[0]->_append_op8_reg_reg (0x84, $_[2], $_[1]) }
+sub test64_reg_reg { $_[0]->_append_op64_reg_reg(0x85, $_[2], $_[1]) }
+sub test32_reg_reg { $_[0]->_append_op32_reg_reg(0x85, $_[2], $_[1]) }
+sub test16_reg_reg { $_[0]->_append_op16_reg_reg(0x85, $_[2], $_[1]) }
+sub test8_reg_reg  { $_[0]->_append_op8_reg_reg (0x84, $_[2], $_[1]) }
 
-sub test64_mem { shift->_append_op64_reg_mem(8, 0x85, @_); }
-sub test32_mem { shift->_append_op32_reg_mem(0, 0x85, @_); }
-sub test16_mem { shift->_append_op16_reg_mem(0, 0x85, @_); }
-sub test8_mem  { shift->_append_op8_reg_mem (0, 0x84, @_); }
+sub test64_reg_mem { $_[0]->_append_op64_reg_mem(8, 0x85, $_[1], @{$_[2]}); }
+sub test32_reg_mem { $_[0]->_append_op32_reg_mem(0, 0x85, $_[1], @{$_[2]}); }
+sub test16_reg_mem { $_[0]->_append_op16_reg_mem(0, 0x85, $_[1], @{$_[2]}); }
+sub test8_reg_mem  { $_[0]->_append_op8_reg_mem (0, 0x84, $_[1], @{$_[2]}); }
 
-sub test64_const { shift->_append_mathop64_const(0xA9, undef, 0xF7, 0, @_) }
-sub test32_const { shift->_append_mathop32_const(0xA9, undef, 0xF7, 0, @_) }
-sub test16_const { shift->_append_mathop16_const(0xA9, undef, 0xF7, 0, @_) }
-sub test8_const  { shift->_append_mathop8_const (0xA8, 0xF6, 0, @_) }
+sub test64_reg_imm { shift->_append_mathop64_const(0xA9, undef, 0xF7, 0, @_) }
+sub test32_reg_imm { shift->_append_mathop32_const(0xA9, undef, 0xF7, 0, @_) }
+sub test16_reg_imm { shift->_append_mathop16_const(0xA9, undef, 0xF7, 0, @_) }
+sub test8_reg_imm  { shift->_append_mathop8_const (0xA8, 0xF6, 0, @_) }
 
-sub test64_mem_const { shift->_append_mathop64_const_to_mem(undef, 0xF7, 0, @_) }
-sub test32_mem_const { shift->_append_mathop32_const_to_mem(undef, 0xF7, 0, @_) }
-sub test16_mem_const { shift->_append_mathop16_const_to_mem(undef, 0xF7, 0, @_) }
-sub test8_mem_const  { shift->_append_mathop8_const_to_mem (0xF6, 0, @_) }
+sub test64_mem_imm { $_[0]->_append_mathop64_const_to_mem(undef, 0xF7, 0, $_[2], @{$_[1]}) }
+sub test32_mem_imm { $_[0]->_append_mathop32_const_to_mem(undef, 0xF7, 0, $_[2], @{$_[1]}) }
+sub test16_mem_imm { $_[0]->_append_mathop16_const_to_mem(undef, 0xF7, 0, $_[2], @{$_[1]}) }
+sub test8_mem_imm  { $_[0]->_append_mathop8_const_to_mem (0xF6, 0, $_[2], @{$_[1]}) }
 
 =head2 DEC
 
 =over
 
-=item decNN_reg
+=item C<dec##_reg($reg)>
 
-=item decNN_mem
+=item C<dec##_mem(\@mem)>
 
 =back
 
 =cut
 
-sub dec64_reg { shift->_append_op64_reg_reg(0xFF, 1, @_) }
-sub dec32_reg { shift->_append_op32_reg_reg(0xFF, 1, @_) }
-sub dec16_reg { shift->_append_op16_reg_reg(0xFF, 1, @_) }
-sub dec8_reg  { shift->_append_op8_reg_reg (0xFE, 1, @_) }
+sub dec64_reg { $_[0]->_append_op64_reg_reg(0xFF, 1, $_[1]) }
+sub dec32_reg { $_[0]->_append_op32_reg_reg(0xFF, 1, $_[1]) }
+sub dec16_reg { $_[0]->_append_op16_reg_reg(0xFF, 1, $_[1]) }
+sub dec8_reg  { $_[0]->_append_op8_reg_reg (0xFE, 1, $_[1]) }
 
-sub dec64_mem { shift->_append_op64_reg_mem(8, 0xFF, 1, @_) }
-sub dec32_mem { shift->_append_op32_reg_mem(0, 0xFF, 1, @_) }
-sub dec16_mem { shift->_append_op16_reg_mem(0, 0xFF, 1, @_) }
-sub dec8_mem  { shift->_append_op8_reg_mem (0, 0xFE, 1, @_) }
+sub dec64_mem { $_[0]->_append_op64_reg_mem(8, 0xFF, 1, @{$_[1]}) }
+sub dec32_mem { $_[0]->_append_op32_reg_mem(0, 0xFF, 1, @{$_[1]}) }
+sub dec16_mem { $_[0]->_append_op16_reg_mem(0, 0xFF, 1, @{$_[1]}) }
+sub dec8_mem  { $_[0]->_append_op8_reg_mem (0, 0xFE, 1, @{$_[1]}) }
 
 =head2 INC
 
 =over
 
-=item incNN_reg
+=item C<inc##_reg($reg)>
 
-=item incNN_mem
+=item C<inc##_mem(\@mem)>
 
 =back
 
 =cut
 
-sub inc64_reg { shift->_append_op64_reg_reg(0xFF, 0, @_) }
-sub inc32_reg { shift->_append_op32_reg_reg(0xFF, 0, @_) }
-sub inc16_reg { shift->_append_op16_reg_reg(0xFF, 0, @_) }
-sub inc8_reg  { shift->_append_op8_reg_reg (0xFE, 0, @_) }
+sub inc64_reg { $_[0]->_append_op64_reg_reg(0xFF, 0, $_[1]) }
+sub inc32_reg { $_[0]->_append_op32_reg_reg(0xFF, 0, $_[1]) }
+sub inc16_reg { $_[0]->_append_op16_reg_reg(0xFF, 0, $_[1]) }
+sub inc8_reg  { $_[0]->_append_op8_reg_reg (0xFE, 0, $_[1]) }
 
-sub inc64_mem { shift->_append_op64_reg_mem(8, 0xFF, 0, @_) }
-sub inc32_mem { shift->_append_op32_reg_mem(0, 0xFF, 0, @_) }
-sub inc16_mem { shift->_append_op16_reg_mem(0, 0xFF, 0, @_) }
-sub inc8_mem  { shift->_append_op8_reg_mem (0, 0xFE, 0, @_) }
+sub inc64_mem { $_[0]->_append_op64_reg_mem(8, 0xFF, 0, @{$_[1]}) }
+sub inc32_mem { $_[0]->_append_op32_reg_mem(0, 0xFF, 0, @{$_[1]}) }
+sub inc16_mem { $_[0]->_append_op16_reg_mem(0, 0xFF, 0, @{$_[1]}) }
+sub inc8_mem  { $_[0]->_append_op8_reg_mem (0, 0xFE, 0, @{$_[1]}) }
 
 =head2 NOT
 
@@ -913,23 +920,23 @@ Flip all bits in a target register or memory location.
 
 =over
 
-=item notNN_reg
+=item C<notNN_reg($reg)>
 
-=item notNN_mem
+=item C<notNN_mem(\@mem)>
 
 =back
 
 =cut
 
-sub not64_reg { shift->_append_op64_reg_reg(0xF7, 2, @_) }
-sub not32_reg { shift->_append_op32_reg_reg(0xF7, 2, @_) }
-sub not16_reg { shift->_append_op16_reg_reg(0xF7, 2, @_) }
-sub not8_reg  { shift->_append_op8_reg_reg (0xF6, 2, @_) }
+sub not64_reg { $_[0]->_append_op64_reg_reg(0xF7, 2, $_[1]) }
+sub not32_reg { $_[0]->_append_op32_reg_reg(0xF7, 2, $_[1]) }
+sub not16_reg { $_[0]->_append_op16_reg_reg(0xF7, 2, $_[1]) }
+sub not8_reg  { $_[0]->_append_op8_reg_reg (0xF6, 2, $_[1]) }
 
-sub not64_mem { shift->_append_op64_reg_mem(8, 0xF7, 2, @_) }
-sub not32_mem { shift->_append_op32_reg_mem(0, 0xF7, 2, @_) }
-sub not16_mem { shift->_append_op16_reg_mem(0, 0xF7, 2, @_) }
-sub not8_mem  { shift->_append_op8_reg_mem (0, 0xF6, 2, @_) }
+sub not64_mem { $_[0]->_append_op64_reg_mem(8, 0xF7, 2, @{$_[1]}) }
+sub not32_mem { $_[0]->_append_op32_reg_mem(0, 0xF7, 2, @{$_[1]}) }
+sub not16_mem { $_[0]->_append_op16_reg_mem(0, 0xF7, 2, @{$_[1]}) }
+sub not8_mem  { $_[0]->_append_op8_reg_mem (0, 0xF6, 2, @{$_[1]}) }
 
 =head2 NEG
 
@@ -937,41 +944,41 @@ Replace target register or memory location with signed negation (2's complement)
 
 =over
 
-=item negNN_reg
+=item C<neg##_reg($reg)>
 
-=item negNN_mem
+=item C<neg##_mem(\@mem)>
 
 =back
 
 =cut
 
-sub neg64_reg { shift->_append_op64_reg_reg(0xF7, 3, @_) }
-sub neg32_reg { shift->_append_op32_reg_reg(0xF7, 3, @_) }
-sub neg16_reg { shift->_append_op16_reg_reg(0xF7, 3, @_) }
-sub neg8_reg  { shift->_append_op8_reg_reg (0xF6, 3, @_) }
+sub neg64_reg { $_[0]->_append_op64_reg_reg(0xF7, 3, $_[1]) }
+sub neg32_reg { $_[0]->_append_op32_reg_reg(0xF7, 3, $_[1]) }
+sub neg16_reg { $_[0]->_append_op16_reg_reg(0xF7, 3, $_[1]) }
+sub neg8_reg  { $_[0]->_append_op8_reg_reg (0xF6, 3, $_[1]) }
 
-sub neg64_mem { shift->_append_op64_reg_mem(8, 0xF7, 3, @_) }
-sub neg32_mem { shift->_append_op32_reg_mem(0, 0xF7, 3, @_) }
-sub neg16_mem { shift->_append_op16_reg_mem(0, 0xF7, 3, @_) }
-sub neg8_mem  { shift->_append_op8_reg_mem (0, 0xF6, 3, @_) }
+sub neg64_mem { $_[0]->_append_op64_reg_mem(8, 0xF7, 3, @{$_[1]}) }
+sub neg32_mem { $_[0]->_append_op32_reg_mem(0, 0xF7, 3, @{$_[1]}) }
+sub neg16_mem { $_[0]->_append_op16_reg_mem(0, 0xF7, 3, @{$_[1]}) }
+sub neg8_mem  { $_[0]->_append_op8_reg_mem (0, 0xF6, 3, @{$_[1]}) }
 
 =head2 DIV, IDIV
 
 =over
 
-=item divNNu_reg
+=item C<divNNu_reg($reg)>
 
 Unsigned divide of _DX:_AX by a NN-bit register.  (divides AX into AL,AH for 8-bit) 
 
-=item divNNu_mem
+=item C<divNNu_mem(\@mem)>
 
 Unsigned divide of _DX:_AX by a NN-bit memory value referenced by 64-bit registers
 
-=item divNNs_reg
+=item C<divNNs_reg($reg)>
 
 Signed divide of _DX:_AX by a NN-bit register.  (divides AX into AL,AH for 8-bit)
 
-=item divNNs_mem
+=item C<divNNs_mem(\@mem)>
 
 Signed divide of _DX:_AX by a NN-bit memory value referenced by 64-bit registers
 
@@ -979,25 +986,25 @@ Signed divide of _DX:_AX by a NN-bit memory value referenced by 64-bit registers
 
 =cut
 
-sub div64u_reg { shift->_append_op64_reg_reg(0xF7, 6, @_) }
-sub div32u_reg { shift->_append_op32_reg_reg(0xF7, 6, @_) }
-sub div16u_reg { shift->_append_op16_reg_reg(0xF7, 6, @_) }
-sub div8u_reg  { shift->_append_op8_opreg_reg(0xF6, 6, @_) }
+sub div64u_reg { $_[0]->_append_op64_reg_reg (0xF7, 6, $_[1]) }
+sub div32u_reg { $_[0]->_append_op32_reg_reg (0xF7, 6, $_[1]) }
+sub div16u_reg { $_[0]->_append_op16_reg_reg (0xF7, 6, $_[1]) }
+sub div8u_reg  { $_[0]->_append_op8_opreg_reg(0xF6, 6, $_[1]) }
 
-sub div64u_mem { shift->_append_op64_reg_mem(8, 0xF7, 6, @_) }
-sub div32u_mem { shift->_append_op32_reg_mem(0, 0xF7, 6, @_) }
-sub div16u_mem { shift->_append_op16_reg_mem(0, 0xF7, 6, @_) }
-sub div8u_mem  { shift->_append_op8_opreg_mem(0, 0xF6, 6, @_) }
+sub div64u_mem { $_[0]->_append_op64_reg_mem (8, 0xF7, 6, @{$_[1]}) }
+sub div32u_mem { $_[0]->_append_op32_reg_mem (0, 0xF7, 6, @{$_[1]}) }
+sub div16u_mem { $_[0]->_append_op16_reg_mem (0, 0xF7, 6, @{$_[1]}) }
+sub div8u_mem  { $_[0]->_append_op8_opreg_mem(0, 0xF6, 6, @{$_[1]}) }
 
-sub div64s_reg { shift->_append_op64_reg_reg(0xF7, 7, @_) }
-sub div32s_reg { shift->_append_op32_reg_reg(0xF7, 7, @_) }
-sub div16s_reg { shift->_append_op16_reg_reg(0xF7, 7, @_) }
-sub div8s_reg  { shift->_append_op8_opreg_reg(0xF6, 7, @_) }
+sub div64s_reg { $_[0]->_append_op64_reg_reg (0xF7, 7, $_[1]) }
+sub div32s_reg { $_[0]->_append_op32_reg_reg (0xF7, 7, $_[1]) }
+sub div16s_reg { $_[0]->_append_op16_reg_reg (0xF7, 7, $_[1]) }
+sub div8s_reg  { $_[0]->_append_op8_opreg_reg(0xF6, 7, $_[1]) }
 
-sub div64s_mem { shift->_append_op64_reg_mem(8, 0xF7, 7, @_) }
-sub div32s_mem { shift->_append_op32_reg_mem(0, 0xF7, 7, @_) }
-sub div16s_mem { shift->_append_op16_reg_mem(0, 0xF7, 7, @_) }
-sub div8s_mem  { shift->_append_op8_opreg_mem(0, 0xF6, 7, @_) }
+sub div64s_mem { $_[0]->_append_op64_reg_mem (8, 0xF7, 7, @{$_[1]}) }
+sub div32s_mem { $_[0]->_append_op32_reg_mem (0, 0xF7, 7, @{$_[1]}) }
+sub div16s_mem { $_[0]->_append_op16_reg_mem (0, 0xF7, 7, @{$_[1]}) }
+sub div8s_mem  { $_[0]->_append_op8_opreg_mem(0, 0xF6, 7, @{$_[1]}) }
 
 =head2 MUL
 

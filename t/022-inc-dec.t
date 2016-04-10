@@ -16,7 +16,7 @@ sub inc {
 	}
 	iterate_mem_addr_combos(
 		\@asm, sub { "inc qword $_[0]" },
-		\@out, sub { new_writer->inc64_mem(@_)->bytes }
+		\@out, sub { new_writer->inc64_mem([@_])->bytes }
 	);
 	asm_ok(\@out, \@asm, 'inc64');
 
@@ -27,7 +27,7 @@ sub inc {
 	}
 	iterate_mem_addr_combos(
 		\@asm, sub { "inc dword $_[0]" },
-		\@out, sub { new_writer->inc32_mem(@_)->bytes }
+		\@out, sub { new_writer->inc32_mem([@_])->bytes }
 	);
 	asm_ok(\@out, \@asm, 'inc32');
 
@@ -38,7 +38,7 @@ sub inc {
 	}
 	iterate_mem_addr_combos(
 		\@asm, sub { "inc word $_[0]" },
-		\@out, sub { new_writer->inc16_mem(@_)->bytes }
+		\@out, sub { new_writer->inc16_mem([@_])->bytes }
 	);
 	asm_ok(\@out, \@asm, 'inc16');
 	
@@ -49,7 +49,7 @@ sub inc {
 	}
 	iterate_mem_addr_combos(
 		\@asm, sub { "inc byte $_[0]" },
-		\@out, sub { new_writer->inc8_mem(@_)->bytes }
+		\@out, sub { new_writer->inc8_mem([@_])->bytes }
 	);
 	asm_ok(\@out, \@asm, 'inc8');
 
@@ -65,7 +65,7 @@ sub dec {
 	}
 	iterate_mem_addr_combos(
 		\@asm, sub { "dec qword $_[0]" },
-		\@out, sub { new_writer->dec64_mem(@_)->bytes }
+		\@out, sub { new_writer->dec64_mem([@_])->bytes }
 	);
 	asm_ok(\@out, \@asm, 'dec64');
 
@@ -76,7 +76,7 @@ sub dec {
 	}
 	iterate_mem_addr_combos(
 		\@asm, sub { "dec dword $_[0]" },
-		\@out, sub { new_writer->dec32_mem(@_)->bytes }
+		\@out, sub { new_writer->dec32_mem([@_])->bytes }
 	);
 	asm_ok(\@out, \@asm, 'dec32');
 
@@ -87,7 +87,7 @@ sub dec {
 	}
 	iterate_mem_addr_combos(
 		\@asm, sub { "dec word $_[0]" },
-		\@out, sub { new_writer->dec16_mem(@_)->bytes }
+		\@out, sub { new_writer->dec16_mem([@_])->bytes }
 	);
 	asm_ok(\@out, \@asm, 'dec16');
 	
@@ -98,7 +98,7 @@ sub dec {
 	}
 	iterate_mem_addr_combos(
 		\@asm, sub { "dec byte $_[0]" },
-		\@out, sub { new_writer->dec8_mem(@_)->bytes }
+		\@out, sub { new_writer->dec8_mem([@_])->bytes }
 	);
 	asm_ok(\@out, \@asm, 'dec8');
 

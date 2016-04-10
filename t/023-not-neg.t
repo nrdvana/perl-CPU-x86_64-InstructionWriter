@@ -16,7 +16,7 @@ sub not {
 	}
 	iterate_mem_addr_combos(
 		\@asm, sub { "not qword $_[0]" },
-		\@out, sub { new_writer->not64_mem(@_)->bytes }
+		\@out, sub { new_writer->not64_mem([@_])->bytes }
 	);
 	asm_ok(\@out, \@asm, 'not64');
 
@@ -27,7 +27,7 @@ sub not {
 	}
 	iterate_mem_addr_combos(
 		\@asm, sub { "not dword $_[0]" },
-		\@out, sub { new_writer->not32_mem(@_)->bytes }
+		\@out, sub { new_writer->not32_mem([@_])->bytes }
 	);
 	asm_ok(\@out, \@asm, 'not32');
 
@@ -38,7 +38,7 @@ sub not {
 	}
 	iterate_mem_addr_combos(
 		\@asm, sub { "not word $_[0]" },
-		\@out, sub { new_writer->not16_mem(@_)->bytes }
+		\@out, sub { new_writer->not16_mem([@_])->bytes }
 	);
 	asm_ok(\@out, \@asm, 'not16');
 	
@@ -49,7 +49,7 @@ sub not {
 	}
 	iterate_mem_addr_combos(
 		\@asm, sub { "not byte $_[0]" },
-		\@out, sub { new_writer->not8_mem(@_)->bytes }
+		\@out, sub { new_writer->not8_mem([@_])->bytes }
 	);
 	asm_ok(\@out, \@asm, 'not8');
 
@@ -65,7 +65,7 @@ sub neg {
 	}
 	iterate_mem_addr_combos(
 		\@asm, sub { "neg qword $_[0]" },
-		\@out, sub { new_writer->neg64_mem(@_)->bytes }
+		\@out, sub { new_writer->neg64_mem([@_])->bytes }
 	);
 	asm_ok(\@out, \@asm, 'neg64');
 
@@ -76,7 +76,7 @@ sub neg {
 	}
 	iterate_mem_addr_combos(
 		\@asm, sub { "neg dword $_[0]" },
-		\@out, sub { new_writer->neg32_mem(@_)->bytes }
+		\@out, sub { new_writer->neg32_mem([@_])->bytes }
 	);
 	asm_ok(\@out, \@asm, 'neg32');
 
@@ -87,7 +87,7 @@ sub neg {
 	}
 	iterate_mem_addr_combos(
 		\@asm, sub { "neg word $_[0]" },
-		\@out, sub { new_writer->neg16_mem(@_)->bytes }
+		\@out, sub { new_writer->neg16_mem([@_])->bytes }
 	);
 	asm_ok(\@out, \@asm, 'neg16');
 	
@@ -98,7 +98,7 @@ sub neg {
 	}
 	iterate_mem_addr_combos(
 		\@asm, sub { "neg byte $_[0]" },
-		\@out, sub { new_writer->neg8_mem(@_)->bytes }
+		\@out, sub { new_writer->neg8_mem([@_])->bytes }
 	);
 	asm_ok(\@out, \@asm, 'neg8');
 

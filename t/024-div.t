@@ -16,11 +16,11 @@ use Log::Any::Adapter 'TAP';
 	}
 	iterate_mem_addr_combos(
 		\@asm, sub { "div qword $_[0]" },
-		\@out, sub { new_writer->div64u_mem(@_)->bytes }
+		\@out, sub { new_writer->div64u_mem([@_])->bytes }
 	);
 	iterate_mem_addr_combos(
 		\@asm, sub { "idiv qword $_[0]" },
-		\@out, sub { new_writer->div64s_mem(@_)->bytes }
+		\@out, sub { new_writer->div64s_mem([@_])->bytes }
 	);
 	asm_ok(\@out, \@asm, 'div64');
 
@@ -33,11 +33,11 @@ use Log::Any::Adapter 'TAP';
 	}
 	iterate_mem_addr_combos(
 		\@asm, sub { "div dword $_[0]" },
-		\@out, sub { new_writer->div32u_mem(@_)->bytes }
+		\@out, sub { new_writer->div32u_mem([@_])->bytes }
 	);
 	iterate_mem_addr_combos(
 		\@asm, sub { "idiv dword $_[0]" },
-		\@out, sub { new_writer->div32s_mem(@_)->bytes }
+		\@out, sub { new_writer->div32s_mem([@_])->bytes }
 	);
 	asm_ok(\@out, \@asm, 'div32');
 
@@ -50,11 +50,11 @@ use Log::Any::Adapter 'TAP';
 	}
 	iterate_mem_addr_combos(
 		\@asm, sub { "div word $_[0]" },
-		\@out, sub { new_writer->div16u_mem(@_)->bytes }
+		\@out, sub { new_writer->div16u_mem([@_])->bytes }
 	);
 	iterate_mem_addr_combos(
 		\@asm, sub { "idiv word $_[0]" },
-		\@out, sub { new_writer->div16s_mem(@_)->bytes }
+		\@out, sub { new_writer->div16s_mem([@_])->bytes }
 	);
 	asm_ok(\@out, \@asm, 'div16');
 
@@ -67,11 +67,11 @@ use Log::Any::Adapter 'TAP';
 	}
 	iterate_mem_addr_combos(
 		\@asm, sub { "div byte $_[0]" },
-		\@out, sub { new_writer->div8u_mem(@_)->bytes }
+		\@out, sub { new_writer->div8u_mem([@_])->bytes }
 	);
 	iterate_mem_addr_combos(
 		\@asm, sub { "idiv byte $_[0]" },
-		\@out, sub { new_writer->div8s_mem(@_)->bytes }
+		\@out, sub { new_writer->div8s_mem([@_])->bytes }
 	);
 	asm_ok(\@out, \@asm, 'div8');
 	

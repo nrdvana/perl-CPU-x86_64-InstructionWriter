@@ -64,7 +64,7 @@ sub jmp_abs_mem {
 	my (@asm, @out);
 	iterate_mem_addr_combos(
 		\@asm, sub { "jmp $_[0]" },
-		\@out, sub { new_writer->jmp_abs_mem(@_)->bytes }
+		\@out, sub { new_writer->jmp_abs_mem([@_])->bytes }
 	);
 	asm_ok( \@out, \@asm, 'jmp [MEM...]' );
 	

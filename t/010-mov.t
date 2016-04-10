@@ -13,7 +13,7 @@ sub test_mov_reg {
 	for my $src (@r64) {
 		for my $dst (@r64) {
 			push @asm, "mov $dst, $src";
-			push @out, new_writer->mov64_reg($dst, $src)->bytes;
+			push @out, new_writer->mov64_reg_reg($dst, $src)->bytes;
 		}
 	}
 	asm_ok( \@out, \@asm, '64-bit reg-to-reg instructions' );
@@ -26,7 +26,7 @@ sub test_mov_const {
 	for my $dst (@r64) {
 		for my $val (@immed64) {
 			push @asm, "mov $dst, $val";
-			push @out, new_writer->mov64_const($dst, $val)->bytes;
+			push @out, new_writer->mov64_reg_imm($dst, $val)->bytes;
 		}
 	}
 	asm_ok( \@out, \@asm, 'mov64_const' );
@@ -35,7 +35,7 @@ sub test_mov_const {
 	for my $dst (@r32) {
 		for my $val (@immed32) {
 			push @asm, "mov $dst, $val";
-			push @out, new_writer->mov32_const($dst, $val)->bytes;
+			push @out, new_writer->mov32_reg_imm($dst, $val)->bytes;
 		}
 	}
 	asm_ok( \@out, \@asm, 'mov32_const' );
@@ -44,7 +44,7 @@ sub test_mov_const {
 	for my $dst (@r16) {
 		for my $val (@immed16) {
 			push @asm, "mov $dst, $val";
-			push @out, new_writer->mov16_const($dst, $val)->bytes;
+			push @out, new_writer->mov16_reg_imm($dst, $val)->bytes;
 		}
 	}
 	asm_ok( \@out, \@asm, 'mov16_const' );
@@ -53,7 +53,7 @@ sub test_mov_const {
 	for my $dst (@r8, @r8h) {
 		for my $val (@immed8) {
 			push @asm, "mov $dst, $val";
-			push @out, new_writer->mov8_const($dst, $val)->bytes;
+			push @out, new_writer->mov8_reg_imm($dst, $val)->bytes;
 		}
 	}
 	asm_ok( \@out, \@asm, 'mov8_const' );
@@ -63,31 +63,54 @@ sub test_mov_const {
 
 sub test_mov_mem {
 	my (@asm, @out);
-	for my $dst (@r64) {
-		for my $src (@r64) {
-			push @asm, "mov $dst, [$src]";
-			push @out, new_writer->mov64_mem($dst, $src)->bytes;
-			push @asm, "mov [$dst], $src";
-			push @out, new_writer->mov64_to_mem($src, $dst)->bytes;
-			for my $ofs (@immed32) {
-				push @asm, "mov $dst, [$src+$ofs]";
-				push @out, new_writer->mov64_mem($dst, $src, $ofs)->bytes;
-			}
-			# RSP isn't valid as a multiplier register
-			for my $ridx (grep { $_ ne 'rsp' } @r64) {
-				for my $mul (1, 2, 4, 8) {
-					push @asm, "mov $dst, [$src+$ridx*$mul]";
-					push @out, new_writer->mov64_mem($dst, $src, undef, $ridx, $mul)->bytes;
-					for my $ofs (@immed32) {
-						push @asm, "mov $dst, [$src+$ofs+$ridx*$mul]";
-						push @out, new_writer->mov64_mem($dst, $src, $ofs, $ridx, $mul)->bytes;
-					}
-				}
-			}
-		}
+	for my $reg (@r64) {
+		iterate_mem_addr_combos(
+			\@asm, sub { "mov $_[0], $reg" },
+			\@out, sub { new_writer->mov64_mem_reg([@_], $reg)->bytes }
+		);
+		iterate_mem_addr_combos(
+			\@asm, sub { "mov $reg, $_[0]" },
+			\@out, sub { new_writer->mov64_reg_mem($reg, [@_])->bytes }
+		);
 	}
-	asm_ok( \@out, \@asm, '64-bit mov load/store and variations' );
+	asm_ok( \@out, \@asm, 'mov64_mem_*' );
 	
+	for my $reg (@r32) {
+		iterate_mem_addr_combos(
+			\@asm, sub { "mov $_[0], $reg" },
+			\@out, sub { new_writer->mov32_mem_reg([@_], $reg)->bytes }
+		);
+		iterate_mem_addr_combos(
+			\@asm, sub { "mov $reg, $_[0]" },
+			\@out, sub { new_writer->mov32_reg_mem($reg, [@_])->bytes }
+		);
+	}
+	asm_ok( \@out, \@asm, 'mov32_mem_*' );
+
+	for my $reg (@r16) {
+		iterate_mem_addr_combos(
+			\@asm, sub { "mov $_[0], $reg" },
+			\@out, sub { new_writer->mov16_mem_reg([@_], $reg)->bytes }
+		);
+		iterate_mem_addr_combos(
+			\@asm, sub { "mov $reg, $_[0]" },
+			\@out, sub { new_writer->mov16_reg_mem($reg, [@_])->bytes }
+		);
+	}
+	asm_ok( \@out, \@asm, 'mov16_mem_*' );
+
+	for my $reg (@r8) {
+		iterate_mem_addr_combos(
+			\@asm, sub { "mov $_[0], $reg" },
+			\@out, sub { new_writer->mov8_mem_reg([@_], $reg)->bytes }
+		);
+		iterate_mem_addr_combos(
+			\@asm, sub { "mov $reg, $_[0]" },
+			\@out, sub { new_writer->mov8_reg_mem($reg, [@_])->bytes }
+		);
+	}
+	asm_ok( \@out, \@asm, 'mov8_mem_*' );
+
 	done_testing;
 }
 
