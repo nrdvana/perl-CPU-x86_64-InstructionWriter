@@ -188,7 +188,7 @@ sub bytes {
 The following methods append an instruction to the buffer, and return C<$self> so you can continue
 calling instructions in a chain.
 
-=head2 NOP
+=head2 NOP, PAUSE
 
 Insert one or more no-op instructions.
 
@@ -203,6 +203,20 @@ If called without an argument, insert one no-op.  Else insert C<$n> no-ops.
 sub nop {
 	$_[0]{_buf} .= (defined $_[1]? "\x90" x $_[1] : "\x90");
 	$_[0];
+}
+
+=item pause(), C<pause( $n )>
+
+Like NOP, but hints to the processor that the program is in a spin-loop so it
+has the opportunity to reduce power consumption.  This is a 2-byte instruction.
+
+=back
+
+=cut
+
+sub pause {
+	$_[0]{_buf} .= (defined $_[1]? "\xF3\x90" x $_[1] : "\xF3\x90");
+	$_[0]
 }
 
 =head2 JMP
