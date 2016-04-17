@@ -78,4 +78,40 @@ sub leave {
 	asm_ok( \@out, \@asm, 'leave' );
 }
 
+subtest push_ => \&push_;
+sub push_ {
+	my (@asm, @out);
+	
+	for my $reg (@r64) {
+		push @asm, "push $reg";
+		push @out, new_writer->push_reg($reg)->bytes;
+	}
+	for my $imm (@immed32) {
+		push @asm, "push qword $imm";
+		push @out, new_writer->push_imm($imm)->bytes;
+	}
+	iterate_mem_addr_combos(
+		\@asm, sub { "push qword $_[0]" },
+		\@out, sub { new_writer->push_mem([@_])->bytes }
+	);
+	
+	asm_ok( \@out, \@asm, 'push' );
+}
+
+subtest pop_ => \&pop_;
+sub pop_ {
+	my (@asm, @out);
+	
+	for my $reg (@r64) {
+		push @asm, "pop $reg";
+		push @out, new_writer->pop_reg($reg)->bytes;
+	}
+	iterate_mem_addr_combos(
+		\@asm, sub { "pop qword $_[0]" },
+		\@out, sub { new_writer->pop_mem([@_])->bytes }
+	);
+	
+	asm_ok( \@out, \@asm, 'push' );
+}
+
 done_testing;

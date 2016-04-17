@@ -315,42 +315,6 @@ sub ret {
 	$self;
 }
 
-=head2 ENTER
-
-  ->enter( $bytes_for_vars, $nesting_level )
-
-bytes_for_vars is an unsigned 16-bit, and nesting_level is a value 0..31
-(byte masked to 5 bits)
-
-Both constants may be expressions.
-
-=cut
-
-sub enter {
-	my ($self, $varspace, $nesting)= @_;
-	$nesting //= 0;
-	if (!ref $varspace && !ref $nesting) {
-		$self->{_buf} .= pack('CvC', 0xC8, $varspace, $nesting);
-	}
-	else {
-		$self->{_buf} .= pack('Cv', 0xC8, ref $varspace? 0 : $varspace);
-		$self->_mark_unresolved(-2, encode => '_repack', bits => 16, value => $varspace)
-			if ref $varspace;
-		$self->{_buf} .= pack('C', ref $nesting? 0 : $nesting);
-		$self->_mark_unresolved(-1, encode => '_repack', bits => 8, value => $nesting)
-			if ref $nesting;
-	}
-	$self
-}
-
-=head2 LEAVE
-
-Un-do an ENTER instruction.
-
-=cut
-
-sub leave { $_[0]{_buf} .= "\xC9"; $_[0] }
-
 =head2 JMP
 
 All jump instructions are relative, and take either a numeric offset (from the start of the next
@@ -1355,6 +1319,98 @@ my @_direction_flag_op= ( "\xFC", "\xFD" );
 sub flag_direction { $_[0]{_buf} .= $_direction_flag_op[$_[1]]; $_[0] }
 sub cld { $_[0]{_buf} .= "\xFC"; $_[0] }
 sub std { $_[0]{_buf} .= "\xFD"; $_[0] }
+
+=head2 PUSH
+
+This only implements the 64-bit push instruction.
+
+=over
+
+=item C<push_reg>
+
+=item C<push_imm>
+
+=item C<push_mem>
+
+=back
+
+=cut
+
+sub push_reg {
+	my ($self, $reg)= @_;
+	$reg= ($regnum64{$reg} // croak("$reg is not a 64-bit register"));
+	$self->{_buf} .= $reg > 7? pack('CC', 0x41, 0x50+($reg&7)) : pack('C', 0x50+($reg&7));
+	$self;
+}
+
+sub push_imm {
+	my ($self, $imm)= @_;
+	use integer;
+	my $val= ref $imm? 0x7FFFFFFF : $imm;
+	$self->{_buf} .= (($val >> 7) == ($val >> 8))? pack('Cc', 0x6A, $val) : pack('CV', 0x68, $val);
+	$self->_mark_unresolved(-4, encode => '_repack', bits => 32, value => $imm)
+		if ref $imm;
+	$self;
+}
+
+sub push_mem { shift->_append_op64_reg_mem(0, 0xFF, 6, shift) }
+
+=head2 POP
+
+=over
+
+=item C<pop_reg>
+
+=item C<pop_mem>
+
+=back
+
+=cut
+
+sub pop_reg {
+	my ($self, $reg)= @_;
+	$reg= ($regnum64{$reg} // croak("$reg is not a 64-bit register"));
+	$self->{_buf} .= $reg > 7? pack('CC', 0x41, 0x58+($reg&7)) : pack('C', 0x58+($reg&7));
+	$self;
+}
+
+sub pop_mem { shift->_append_op64_reg_mem(0, 0x8F, 0, shift) }
+
+=head2 ENTER
+
+  ->enter( $bytes_for_vars, $nesting_level )
+
+bytes_for_vars is an unsigned 16-bit, and nesting_level is a value 0..31
+(byte masked to 5 bits)
+
+Both constants may be expressions.
+
+=cut
+
+sub enter {
+	my ($self, $varspace, $nesting)= @_;
+	$nesting //= 0;
+	if (!ref $varspace && !ref $nesting) {
+		$self->{_buf} .= pack('CvC', 0xC8, $varspace, $nesting);
+	}
+	else {
+		$self->{_buf} .= pack('Cv', 0xC8, ref $varspace? 0 : $varspace);
+		$self->_mark_unresolved(-2, encode => '_repack', bits => 16, value => $varspace)
+			if ref $varspace;
+		$self->{_buf} .= pack('C', ref $nesting? 0 : $nesting);
+		$self->_mark_unresolved(-1, encode => '_repack', bits => 8, value => $nesting)
+			if ref $nesting;
+	}
+	$self
+}
+
+=head2 LEAVE
+
+Un-do an ENTER instruction.
+
+=cut
+
+sub leave { $_[0]{_buf} .= "\xC9"; $_[0] }
 
 =head2 syscall
 
