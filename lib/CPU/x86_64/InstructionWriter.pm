@@ -231,6 +231,126 @@ sub pause {
 	$_[0]
 }
 
+=head2 CALL
+
+=over
+
+=item C<call_label( $label )>
+
+Call to subroutine at named label, relative to current RIP.
+This method takes a label and calculates a C<call_rel( $ofs )> for you.
+
+=item C<call_rel( $offset )>
+
+Call to subroutine at signed 32-bit offset from current RIP.
+
+=item C<call_abs_reg( $reg )>
+
+Call to subroutine at absolute address stored in 64-bit register.
+
+=item C<call_abs_mem( \@mem )>
+
+Call to subroutine at absolute address stored at L</memory location>
+
+=back
+
+=cut
+
+sub call_label {
+	@_ == 2 or croak "Wrong arguments";
+	$_[1]= $_[0]->get_label
+		unless defined $_[1];
+	my ($self, $label)= @_;
+	use integer;
+	$label= $self->get_label($label)
+		unless ref $label;
+	$self->_mark_unresolved(
+		5, # estimated length
+		encode => sub {
+			my ($self, $params)= @_;
+			defined $label->{start} or croak "Label $label is not marked";
+			my $ofs= $label->{start} - ($params->{start}+$params->{len});
+			($ofs >> 31) == ($ofs >> 32) or croak "Offset must be within 31 bits";
+			return pack('CV', 0xE8, $ofs);
+		}
+	);
+	$self;
+}
+
+sub call_rel {
+	my ($self, $immed)= @_;
+	$self->{_buf} .= pack('CV', 0xE8, ref $immed? 0 : $immed);
+	$self->_mark_unresolved(-4, encode => '_repack', bits => 32, value => $immed)
+		if ref $immed;
+	$self;
+}
+
+sub call_abs_reg {
+	my ($self, $reg)= @_;
+	$self->{_buf} .= $self->_encode_op_reg_reg(0, 0xFF, 2,
+		$regnum64{$reg} // croak("$reg is not a 64-bit register"),
+	);
+	$self;
+}
+
+sub call_abs_mem { $_[0]->_append_op64_reg_mem(0, 0xFF, 2, $_[1]) }
+
+=head2 RET
+
+  ->ret
+  ->ret($pop_bytes) # 16-bit number of bytes to discard from stack
+
+=cut
+
+sub ret {
+	my ($self, $pop_bytes)= @_;
+	if ($pop_bytes) {
+		$self->{_buf} .= pack('Cv', 0xC2, ref $pop_bytes? 0 : $pop_bytes);
+		$self->_mark_unresolved(-2, encode => '_repack', bits => 16, value => $pop_bytes)
+			if ref $pop_bytes;
+	}
+	else {
+		$self->{_buf} .= "\xC3";
+	}
+	$self;
+}
+
+=head2 ENTER
+
+  ->enter( $bytes_for_vars, $nesting_level )
+
+bytes_for_vars is an unsigned 16-bit, and nesting_level is a value 0..31
+(byte masked to 5 bits)
+
+Both constants may be expressions.
+
+=cut
+
+sub enter {
+	my ($self, $varspace, $nesting)= @_;
+	$nesting //= 0;
+	if (!ref $varspace && !ref $nesting) {
+		$self->{_buf} .= pack('CvC', 0xC8, $varspace, $nesting);
+	}
+	else {
+		$self->{_buf} .= pack('Cv', 0xC8, ref $varspace? 0 : $varspace);
+		$self->_mark_unresolved(-2, encode => '_repack', bits => 16, value => $varspace)
+			if ref $varspace;
+		$self->{_buf} .= pack('C', ref $nesting? 0 : $nesting);
+		$self->_mark_unresolved(-1, encode => '_repack', bits => 8, value => $nesting)
+			if ref $nesting;
+	}
+	$self
+}
+
+=head2 LEAVE
+
+Un-do an ENTER instruction.
+
+=cut
+
+sub leave { $_[0]{_buf} .= "\xC9"; $_[0] }
+
 =head2 JMP
 
 All jump instructions are relative, and take either a numeric offset (from the start of the next
@@ -1235,18 +1355,6 @@ my @_direction_flag_op= ( "\xFC", "\xFD" );
 sub flag_direction { $_[0]{_buf} .= $_direction_flag_op[$_[1]]; $_[0] }
 sub cld { $_[0]{_buf} .= "\xFC"; $_[0] }
 sub std { $_[0]{_buf} .= "\xFD"; $_[0] }
-
-=head2 CALL
-
-=head2 ENTER
-
-=cut
-
-sub call { ... }
-
-sub enter { ... }
-
-# TODO
 
 =head2 syscall
 
