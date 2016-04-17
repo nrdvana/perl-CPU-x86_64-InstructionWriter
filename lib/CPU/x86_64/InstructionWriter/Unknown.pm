@@ -1,7 +1,9 @@
 package CPU::x86_64::InstructionWriter::Unknown;
-use Moo;
+use Moo 2;
 use Carp;
 use Scalar::Util 'refaddr';
+
+# ABSTRACT: Placeholder for a constant that will be assembled
 
 has name => ( is => 'rw' );
 

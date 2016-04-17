@@ -1,8 +1,11 @@
 package CPU::x86_64::InstructionWriter;
-use Moo;
+use v5.10;
+use Moo 2;
 use Carp;
 use Exporter 'import';
 use CPU::x86_64::InstructionWriter::Unknown;
+
+# ABSTRACT: Assemble x86-64 instructions using a pure-perl API
 
 =head1 SYNOPSIS
 
@@ -210,13 +213,6 @@ Insert one or more no-op instructions.
 
 If called without an argument, insert one no-op.  Else insert C<$n> no-ops.
 
-=cut
-
-sub nop {
-	$_[0]{_buf} .= (defined $_[1]? "\x90" x $_[1] : "\x90");
-	$_[0];
-}
-
 =item pause(), C<pause( $n )>
 
 Like NOP, but hints to the processor that the program is in a spin-loop so it
@@ -225,6 +221,11 @@ has the opportunity to reduce power consumption.  This is a 2-byte instruction.
 =back
 
 =cut
+
+sub nop {
+	$_[0]{_buf} .= (defined $_[1]? "\x90" x $_[1] : "\x90");
+	$_[0];
+}
 
 sub pause {
 	$_[0]{_buf} .= (defined $_[1]? "\xF3\x90" x $_[1] : "\xF3\x90");
@@ -612,14 +613,14 @@ Store a constant value into a ##-bit memory location.
 For mov64, constant is sign-extended to 64-bits.
 Constant may be an expression.
 
+=back
+
 =cut
 
 sub mov64_mem_imm { $_[0]->_append_op64_const_mem(0xC7, 0, $_[2], $_[1]) }
 sub mov32_mem_imm { $_[0]->_append_op32_const_mem(0xC7, 0, $_[2], $_[1]) }
 sub mov16_mem_imm { $_[0]->_append_op16_const_mem(0xC7, 0, $_[2], $_[1]) }
 sub mov8_mem_imm  { $_[0]->_append_op8_const_mem (0xC6, 0, $_[2], $_[1]) }
-
-=back
 
 =head2 CMOV
 
@@ -970,14 +971,6 @@ Swap byte order on 32 or 64 bits.
 
 (This is actually the XCHG instruction)
 
-=cut
-
-# TODO
-
-=back
-
-=head2 
-
 =back
 
 =head2 CMP
@@ -1273,6 +1266,8 @@ Various special-purpose sign extension instructions, mostly used to set up for D
 
 =item sign_extend_rax_rdx, cqo
 
+=back
+
 =cut
 
 sub sign_extend_al_ax { $_[0]{_buf} .= "\x66\x98"; $_[0] }
@@ -1292,8 +1287,6 @@ sub sign_extend_eax_edx { $_[0]{_buf} .= "\x99"; $_[0] }
 
 sub sign_extend_rax_rdx { $_[0]{_buf} .= "\x48\x99"; $_[0] }
 *cqo= *sign_extend_rax_rdx;
-
-=back
 
 =head2 flag modifiers
 
@@ -1436,6 +1429,8 @@ sub syscall {
 =item strcmp16, cmpsw
 
 =item strcmp8, cmpsb
+
+=back
 
 =cut
 
