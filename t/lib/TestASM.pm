@@ -110,6 +110,7 @@ sub asm_ok {
 sub show_bad_instructions {
 	my ($output, $asm_text, $min, $max)= @_;
 	if ($max - $min < 8) {
+		my $found;
 		for ($min..$max) {
 			my $out= $output->[$_];
 			my $ref= eval { reference_assemble($asm_text->[$_]); };
@@ -117,11 +118,16 @@ sub show_bad_instructions {
 				my $asm_str= $asm_text->[$_];
 				$asm_str =~ s/\n/; /g;
 				diag "Can't get reference ASM for $asm_str: $@";
+				$found++;
 			} elsif ($out ne $ref) {
-				diag "$asm_text->[$_] was ".hex_dump($out)." but should be ".hex_dump($ref)
+				diag "$asm_text->[$_] was ".hex_dump($out)." but should be ".hex_dump($ref);
+				$found++;
 			}
 		}
-		diag "(and possibly more)";
+		note "Reference assembler seems to compile individual statements differently than the whole..."
+			unless $found;
+		note "(and possibly more)"
+			if $found;
 		die; # quick exit
 	}
 	else {
