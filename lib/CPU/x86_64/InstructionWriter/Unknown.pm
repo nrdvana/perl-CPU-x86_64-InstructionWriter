@@ -1,4 +1,5 @@
 package CPU::x86_64::InstructionWriter::Unknown;
+
 use Moo 2;
 use Carp;
 use Scalar::Util 'refaddr';

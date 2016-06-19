@@ -1,4 +1,5 @@
 package CPU::x86_64::InstructionWriter;
+
 use v5.10;
 use Moo 2;
 use Carp;
