@@ -4,7 +4,7 @@ use warnings;
 no warnings 'portable';
 use FindBin;
 use lib "$FindBin::Bin/lib";
-use TestASM qw( new_writer iterate_mem_addr_combos asm_ok @r64 @r32 @r16 @r8 @r8h @immed64 @immed32 @immed16 @immed8 );
+use TestASM qw( new_writer iterate_mem_addr_combos asm_ok @r64 @r32 @r16 @r8 @r8h @immed64 @immed32 @immed16 @immed8 unknown );
 use Test::More;
 use Log::Any::Adapter 'TAP';
 
@@ -116,30 +116,70 @@ sub test_mov_mem {
 }
 
 sub test_mov_ax_addr {
-	my (@asm, @out);
+	my (@asm, @out, $w, $u);
 	push @asm, "mov RAX, [qword 0xFF00FF00FF00FF00]";
 	push @asm, "mov [qword 0xFF00FF00FF00FF00], RAX";
-	push @out, new_writer->mov64_rax_memaddr(0xFF00FF00FF00FF00)->bytes;
-	push @out, new_writer->mov64_memaddr_rax(0xFF00FF00FF00FF00)->bytes;
+	push @out, new_writer->mov64_reg_mem('rax', [undef, 0xFF00FF00FF00FF00])->bytes;
+	push @out, new_writer->mov64_mem_reg([undef, 0xFF00FF00FF00FF00], 'rax')->bytes;
 	asm_ok( \@out, \@asm, 'mov64_memaddr' );
 	
 	push @asm, "mov EAX, [qword 0xFF00FF00FF00FF00]";
 	push @asm, "mov [qword 0xFF00FF00FF00FF00], EAX";
-	push @out, new_writer->mov32_eax_memaddr(0xFF00FF00FF00FF00)->bytes;
-	push @out, new_writer->mov32_memaddr_eax(0xFF00FF00FF00FF00)->bytes;
+	push @out, new_writer->mov32_reg_mem('eax', [undef, 0xFF00FF00FF00FF00])->bytes;
+	push @out, new_writer->mov32_mem_reg([undef, 0xFF00FF00FF00FF00], 'eax')->bytes;
 	asm_ok( \@out, \@asm, 'mov32_memaddr' );
 	
 	push @asm, "mov AX, [qword 0xFF00FF00FF00FF00]";
 	push @asm, "mov [qword 0xFF00FF00FF00FF00], AX";
-	push @out, new_writer->mov16_ax_memaddr(0xFF00FF00FF00FF00)->bytes;
-	push @out, new_writer->mov16_memaddr_ax(0xFF00FF00FF00FF00)->bytes;
+	push @out, new_writer->mov16_reg_mem('ax', [undef, 0xFF00FF00FF00FF00])->bytes;
+	push @out, new_writer->mov16_mem_reg([undef, 0xFF00FF00FF00FF00], 'ax')->bytes;
 	asm_ok( \@out, \@asm, 'mov16_memaddr' );
 	
 	push @asm, "mov AL, [qword 0xFF00FF00FF00FF00]";
 	push @asm, "mov [qword 0xFF00FF00FF00FF00], AL";
-	push @out, new_writer->mov8_al_memaddr(0xFF00FF00FF00FF00)->bytes;
-	push @out, new_writer->mov8_memaddr_al(0xFF00FF00FF00FF00)->bytes;
+	push @out, new_writer->mov8_reg_mem('al', [undef, 0xFF00FF00FF00FF00])->bytes;
+	push @out, new_writer->mov8_mem_reg([undef, 0xFF00FF00FF00FF00], 'al')->bytes;
 	asm_ok( \@out, \@asm, 'mov8_memaddr' );
+	
+	push @asm, "mov RAX, [0x7FFFFFFF]";
+	$w= new_writer->mov64_reg_mem('rax', [undef, $u= unknown]);
+	$u->value(0x7FFFFFFF);
+	push @out, $w->bytes;
+	push @asm, "mov RAX, [qword 0x1FF00FF00]";
+	$w= new_writer->mov64_reg_mem('rax', [undef, $u= unknown]);
+	$u->value(0x1FF00FF00);
+	push @out, $w->bytes;
+	asm_ok( \@out, \@asm, 'mov64_memaddr (lazy)' );
+
+	push @asm, "mov EAX, [0x7FFFFFFF]";
+	$w= new_writer->mov32_reg_mem('eax', [undef, $u= unknown]);
+	$u->value(0x7FFFFFFF);
+	push @out, $w->bytes;
+	push @asm, "mov EAX, [qword 0x1FF00FF00]";
+	$w= new_writer->mov32_reg_mem('eax', [undef, $u= unknown]);
+	$u->value(0x1FF00FF00);
+	push @out, $w->bytes;
+	asm_ok( \@out, \@asm, 'mov32_memaddr (lazy)' );
+
+	push @asm, "mov AX, [0x7FFFFFFF]";
+	$w= new_writer->mov16_reg_mem('ax', [undef, $u= unknown]);
+	$u->value(0x7FFFFFFF);
+	push @out, $w->bytes;
+	push @asm, "mov AX, [qword 0x1FF00FF00]";
+	$w= new_writer->mov16_reg_mem('ax', [undef, $u= unknown]);
+	$u->value(0x1FF00FF00);
+	push @out, $w->bytes;
+	asm_ok( \@out, \@asm, 'mov16_memaddr (lazy)' );
+
+	push @asm, "mov AL, [0x7FFFFFFF]";
+	$w= new_writer->mov8_reg_mem('al', [undef, $u= unknown]);
+	$u->value(0x7FFFFFFF);
+	push @out, $w->bytes;
+	push @asm, "mov AL, [qword 0x1FF00FF00]";
+	$w= new_writer->mov8_reg_mem('al', [undef, $u= unknown]);
+	$u->value(0x1FF00FF00);
+	push @out, $w->bytes;
+	asm_ok( \@out, \@asm, 'mov8_memaddr (lazy)' );
 }
 
 sub test_mov_mem_imm {

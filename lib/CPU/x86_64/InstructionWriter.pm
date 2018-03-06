@@ -535,56 +535,66 @@ sub mov64_reg_reg { shift->_append_op64_reg_reg(0x89, $_[1], $_[0]) }
 
 =item C<mov##_mem_reg($mem, $reg)>
 
-Store ##-bit value in register to a L</memory location>.
-
-=item C<mov64_memaddr_rax($addr64)>
-=item C<mov32_memaddr_eax($addr64)>
-=item C<mov16_memaddr_ax($addr64)>
-=item C<mov8_memaddr_al($addr64)>
-
-Store ##-bit value in RAX/EAX/AX/AL register to an immediate literal 64-bit memory address (not based on a register).
+Store ##-bit value in register to a L</memory location>.  If the memory location
+consists of a single displacement greater than 32 bits, the register must be the
+appropriate size accumulator (RAX, EAX, AX, or AL)
 
 =item C<mov##_reg_mem($reg, $mem)>
 
-Load ##-bit value at L</memory location> into register.
+Load ##-bit value at L</memory location> into register.  The Displacement portion
+of the memory location must normally be 32-bit, but as a special case you can load
+a full 64-bit displacement (with no register offset) into the Accumulator register
+of that size (RAX, EAX, AX, or AL).
 
-=item C<mov64_rax_memaddr($addr64)>
-=item C<mov32_eax_memaddr($addr64)>
-=item C<mov16_ax_memaddr($addr64)>
-=item C<mov8_al_memaddr($addr64)>
-
-Load ##-bit value at an immediate literal 64-bit memory address (not based on a register) into register RAX/EAX/AX/AL.
+   $asm->mov8_reg_mem ( 'al', [ undef, 0xFF00FF00FF00FF00FF00 ]);
+   $asm->mov64_reg_mem('rax', [ undef, 0xFF00FF00FF00FF00FF00 ]);
 
 =cut
 
-sub mov64_mem_reg { $_[0]->_append_op64_reg_mem(8, 0x89, $_[2], $_[1]); }
-sub mov32_mem_reg { $_[0]->_append_op32_reg_mem(0, 0x89, $_[2], $_[1]); }
-sub mov16_mem_reg { $_[0]->_append_op16_reg_mem(0, 0x89, $_[2], $_[1]); }
-sub mov8_mem_reg  { $_[0]->_append_op8_reg_mem (0, 0x88, $_[2], $_[1]); }
+sub mov64_mem_reg { $_[0]->_append_mov_reg_mem($_[2], $_[1], 64, 0x89, 0xA3); }
+sub mov64_reg_mem { $_[0]->_append_mov_reg_mem($_[1], $_[2], 64, 0x8B, 0xA1); }
+sub mov32_mem_reg { $_[0]->_append_mov_reg_mem($_[2], $_[1], 32, 0x89, 0xA3); }
+sub mov32_reg_mem { $_[0]->_append_mov_reg_mem($_[1], $_[2], 32, 0x8B, 0xA1); }
+sub mov16_mem_reg { $_[0]->_append_mov_reg_mem($_[2], $_[1], 16, 0x89, 0xA3); }
+sub mov16_reg_mem { $_[0]->_append_mov_reg_mem($_[1], $_[2], 16, 0x8B, 0xA1); }
+sub mov8_mem_reg  { $_[0]->_append_mov_reg_mem($_[2], $_[1],  8, 0x88, 0xA2); }
+sub mov8_reg_mem  { $_[0]->_append_mov_reg_mem($_[1], $_[2],  8, 0x8A, 0xA0); }
 
-sub mov64_reg_mem { $_[0]->_append_op64_reg_mem(8, 0x8B, $_[1], $_[2]); }
-sub mov32_reg_mem { $_[0]->_append_op32_reg_mem(0, 0x8B, $_[1], $_[2]); }
-sub mov16_reg_mem { $_[0]->_append_op16_reg_mem(0, 0x8B, $_[1], $_[2]); }
-sub mov8_reg_mem  { $_[0]->_append_op8_reg_mem (0, 0x8A, $_[1], $_[2]); }
-
-sub mov64_rax_memaddr { shift->_append_mov_accum_memaddr(shift, "\x48\xA1") }
-sub mov32_eax_memaddr { shift->_append_mov_accum_memaddr(shift,     "\xA1") }
-sub mov16_ax_memaddr  { shift->_append_mov_accum_memaddr(shift, "\x66\xA1") }
-sub mov8_al_memaddr   { shift->_append_mov_accum_memaddr(shift,     "\xA0") }
-sub mov64_memaddr_rax { shift->_append_mov_accum_memaddr(shift, "\x48\xA3") }
-sub mov32_memaddr_eax { shift->_append_mov_accum_memaddr(shift,     "\xA3") }
-sub mov16_memaddr_ax  { shift->_append_mov_accum_memaddr(shift, "\x66\xA3") }
-sub mov8_memaddr_al   { shift->_append_mov_accum_memaddr(shift,     "\xA2") }
-sub _append_mov_accum_memaddr {
-	my ($self, $memaddr, $op_str, $pack_len)= @_;
-	$self->{_buf} .= $op_str;
-	if (ref $memaddr) {
-		$self->_mark_unresolved($pack_len, encode => '_repack', bits => 64, value => $memaddr);
-	} else {
-		$self->{_buf} .= pack('Q<', $memaddr);
+sub _append_mov_reg_mem {
+	my ($self, $reg, $mem, $bits, $opcode, $ax_opcode)= @_;
+	# AX is allowed to load/store 64-bit addresses, if the address is a single constant
+	if (!defined $mem->[0] && $mem->[1] && !defined $mem->[2] && ($mem->[1] > 0x7FFFFFFF || ref $mem->[1])) {
+		my $disp= $mem->[1];
+		if (lc($reg) eq ($bits == 64? 'rax' : $bits == 32? 'eax' : $bits == 16? 'ax' : 'al')) {
+			my $opstr= chr($ax_opcode);
+			$opstr= "\x48".$opstr if $bits == 64;
+			$opstr= "\x66".$opstr if $bits == 16;
+			# Do the dance for values which haven't been resolved yet
+			my $val= ref $disp? $disp->value : $disp;
+			if (!defined $val) {
+				$self->_mark_unresolved(
+					10, # longest instruction possible, not the greatest guess.
+					encode => sub {
+						my $v= $disp->value;
+						defined $v or croak "Placeholder $disp has not been assigned";
+						return $v > 0x7FFFFFFF? $opstr . pack('Q<', $v)
+							: ($bits == 16? "\x66":'')
+							. $_[0]->_encode_op_reg_mem($bits == 64? 8 : 0, $opcode, 0, undef, $v);
+					}
+				);
+			} else {
+				$self->{_buf} .= $opstr . pack('Q<', $val);
+			}
+			return $self;
+		}
 	}
-	$self;
+	# Else normal encoding for reg,mem
+	return $self->_append_op64_reg_mem(8, $opcode, $reg, $mem) if $bits == 64;
+	return $self->_append_op32_reg_mem(0, $opcode, $reg, $mem) if $bits == 32;
+	return $self->_append_op16_reg_mem(0, $opcode, $reg, $mem) if $bits == 16;
+	return $self->_append_op8_reg_mem (0, $opcode, $reg, $mem) if $bits ==  8;
 }
+
 
 =item C<mov64_reg_imm($dest_reg, $constant)>
 
@@ -647,7 +657,7 @@ sub mov8_reg_imm {
 =item C<mov##_mem_imm($mem, $constant)>
 
 Store a constant value into a ##-bit memory location.
-For mov64, constant is sign-extended to 64-bits.
+For mov64, constant is 32-bit sign-extended to 64-bits.
 Constant may be an expression.
 
 =back
@@ -2260,8 +2270,8 @@ sub _repack {
 	my $v= $params->{value}->value;
 	defined $v or croak "Placeholder $params->{value} has not been assigned";
 	my $bits= $params->{bits};
-	my $pack= $bits == 8? 'C' : $bits == 16? 'v' : $bits == 32? 'V' : $bits == 64? 'Q<' : die "Unhandled bits $bits\n";
-	(($v >> $bits) == ($v >> ($bits+1))) or croak "$v is wider than $bits bits";
+	my $pack= $bits <= 8? 'C' : $bits <= 16? 'v' : $bits <= 32? 'V' : $bits <= 64? 'Q<' : die "Unhandled bits $bits\n";
+	$bits == 64 || (($v >> $bits) == ($v >> ($bits+1))) or croak "$v is wider than $bits bits";
 	return pack($pack, $v & ~(~0 << $bits));
 }
 

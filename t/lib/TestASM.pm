@@ -8,11 +8,13 @@ use IO::Handle;
 use File::Temp;
 use File::Spec::Functions 'splitpath', 'splitdir', 'catdir', 'catpath';
 use Digest::MD5 'md5_hex';
-use CPU::x86_64::InstructionWriter;
+use CPU::x86_64::InstructionWriter ':unknown';
 
 our @EXPORT_OK= qw( reference_assemble iterate_mem_addr_combos
 	hex_diff have_nasm asm_ok new_writer
-	@r64 @r32 @r16 @r8 @r8h @immed64 @immed32 @immed16 @immed8 );
+	@r64 @r32 @r16 @r8 @r8h @immed64 @immed32 @immed16 @immed8
+	unknown unknown8 unknown16 unknown32 unknown64 unknown7 unknown15 unknown31 unknown63
+);
 
 my $do_all= $ENV{TEST_EXHAUSTIVE}
 	or note "Skipping exhaustive testing, set TEST_EXHAUSTIVE=1 to do a full test";
