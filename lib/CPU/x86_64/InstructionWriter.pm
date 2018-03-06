@@ -537,9 +537,23 @@ sub mov64_reg_reg { shift->_append_op64_reg_reg(0x89, $_[1], $_[0]) }
 
 Store ##-bit value in register to a L</memory location>.
 
+=item C<mov64_memaddr_rax($addr64)>
+=item C<mov32_memaddr_eax($addr64)>
+=item C<mov16_memaddr_ax($addr64)>
+=item C<mov8_memaddr_al($addr64)>
+
+Store ##-bit value in RAX/EAX/AX/AL register to an immediate literal 64-bit memory address (not based on a register).
+
 =item C<mov##_reg_mem($reg, $mem)>
 
 Load ##-bit value at L</memory location> into register.
+
+=item C<mov64_rax_memaddr($addr64)>
+=item C<mov32_eax_memaddr($addr64)>
+=item C<mov16_ax_memaddr($addr64)>
+=item C<mov8_al_memaddr($addr64)>
+
+Load ##-bit value at an immediate literal 64-bit memory address (not based on a register) into register RAX/EAX/AX/AL.
 
 =cut
 
@@ -552,6 +566,25 @@ sub mov64_reg_mem { $_[0]->_append_op64_reg_mem(8, 0x8B, $_[1], $_[2]); }
 sub mov32_reg_mem { $_[0]->_append_op32_reg_mem(0, 0x8B, $_[1], $_[2]); }
 sub mov16_reg_mem { $_[0]->_append_op16_reg_mem(0, 0x8B, $_[1], $_[2]); }
 sub mov8_reg_mem  { $_[0]->_append_op8_reg_mem (0, 0x8A, $_[1], $_[2]); }
+
+sub mov64_rax_memaddr { shift->_append_mov_accum_memaddr(shift, "\x48\xA1") }
+sub mov32_eax_memaddr { shift->_append_mov_accum_memaddr(shift,     "\xA1") }
+sub mov16_ax_memaddr  { shift->_append_mov_accum_memaddr(shift, "\x66\xA1") }
+sub mov8_al_memaddr   { shift->_append_mov_accum_memaddr(shift,     "\xA0") }
+sub mov64_memaddr_rax { shift->_append_mov_accum_memaddr(shift, "\x48\xA3") }
+sub mov32_memaddr_eax { shift->_append_mov_accum_memaddr(shift,     "\xA3") }
+sub mov16_memaddr_ax  { shift->_append_mov_accum_memaddr(shift, "\x66\xA3") }
+sub mov8_memaddr_al   { shift->_append_mov_accum_memaddr(shift,     "\xA2") }
+sub _append_mov_accum_memaddr {
+	my ($self, $memaddr, $op_str, $pack_len)= @_;
+	$self->{_buf} .= $op_str;
+	if (ref $memaddr) {
+		$self->_mark_unresolved($pack_len, encode => '_repack', bits => 64, value => $memaddr);
+	} else {
+		$self->{_buf} .= pack('Q<', $memaddr);
+	}
+	$self;
+}
 
 =item C<mov64_reg_imm($dest_reg, $constant)>
 
@@ -2227,7 +2260,7 @@ sub _repack {
 	my $v= $params->{value}->value;
 	defined $v or croak "Placeholder $params->{value} has not been assigned";
 	my $bits= $params->{bits};
-	my $pack= $bits == 8? 'C' : $bits == 16? 'v' : $bits == 32? 'V' : $bits == 64? '<Q' : die "Unhandled bits $bits\n";
+	my $pack= $bits == 8? 'C' : $bits == 16? 'v' : $bits == 32? 'V' : $bits == 64? 'Q<' : die "Unhandled bits $bits\n";
 	(($v >> $bits) == ($v >> ($bits+1))) or croak "$v is wider than $bits bits";
 	return pack($pack, $v & ~(~0 << $bits));
 }

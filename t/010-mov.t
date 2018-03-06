@@ -1,6 +1,7 @@
 #! /usr/bin/env perl
 use strict;
 use warnings;
+no warnings 'portable';
 use FindBin;
 use lib "$FindBin::Bin/lib";
 use TestASM qw( new_writer iterate_mem_addr_combos asm_ok @r64 @r32 @r16 @r8 @r8h @immed64 @immed32 @immed16 @immed8 );
@@ -114,6 +115,33 @@ sub test_mov_mem {
 	done_testing;
 }
 
+sub test_mov_ax_addr {
+	my (@asm, @out);
+	push @asm, "mov RAX, [qword 0xFF00FF00FF00FF00]";
+	push @asm, "mov [qword 0xFF00FF00FF00FF00], RAX";
+	push @out, new_writer->mov64_rax_memaddr(0xFF00FF00FF00FF00)->bytes;
+	push @out, new_writer->mov64_memaddr_rax(0xFF00FF00FF00FF00)->bytes;
+	asm_ok( \@out, \@asm, 'mov64_memaddr' );
+	
+	push @asm, "mov EAX, [qword 0xFF00FF00FF00FF00]";
+	push @asm, "mov [qword 0xFF00FF00FF00FF00], EAX";
+	push @out, new_writer->mov32_eax_memaddr(0xFF00FF00FF00FF00)->bytes;
+	push @out, new_writer->mov32_memaddr_eax(0xFF00FF00FF00FF00)->bytes;
+	asm_ok( \@out, \@asm, 'mov32_memaddr' );
+	
+	push @asm, "mov AX, [qword 0xFF00FF00FF00FF00]";
+	push @asm, "mov [qword 0xFF00FF00FF00FF00], AX";
+	push @out, new_writer->mov16_ax_memaddr(0xFF00FF00FF00FF00)->bytes;
+	push @out, new_writer->mov16_memaddr_ax(0xFF00FF00FF00FF00)->bytes;
+	asm_ok( \@out, \@asm, 'mov16_memaddr' );
+	
+	push @asm, "mov AL, [qword 0xFF00FF00FF00FF00]";
+	push @asm, "mov [qword 0xFF00FF00FF00FF00], AL";
+	push @out, new_writer->mov8_al_memaddr(0xFF00FF00FF00FF00)->bytes;
+	push @out, new_writer->mov8_memaddr_al(0xFF00FF00FF00FF00)->bytes;
+	asm_ok( \@out, \@asm, 'mov8_memaddr' );
+}
+
 sub test_mov_mem_imm {
 	my (@asm, @out);
 	iterate_mem_addr_combos(
@@ -170,5 +198,6 @@ subtest mov_reg => \&test_mov_reg;
 subtest mov_const => \&test_mov_const;
 subtest mov_mem => \&test_mov_mem;
 subtest mov_mem_imm => \&test_mov_mem_imm;
+subtest mov_ax_addr => \&test_mov_ax_addr;
 subtest lea => \&test_lea;
 done_testing;
