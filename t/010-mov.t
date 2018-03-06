@@ -206,6 +206,15 @@ sub test_mov_mem_imm {
 	asm_ok( \@out, \@asm, 'mov64_mem_imm' );
 }
 
+sub test_mov {
+	my (@asm, @out);
+	push @asm,            "mov EAX, EBX\n    mov ECX, [RDX]\n    mov [RSI], RDI";
+	push @out, new_writer->mov('EAX','EBX')->mov('ECX',['RDX'])->mov(['RSI'],'RDI')->bytes;
+	push @asm,            "mov EAX, 42\n     mov EAX, [42]\n     mov R12, [R10+11+R12*4]";
+	push @out, new_writer->mov('EAX',42)   ->mov('EAX',[undef,42])   ->mov('R12',['R10',11,'R12',4])->bytes;
+	asm_ok( \@out, \@asm, 'mov' );
+}
+
 sub test_lea {
 	my (@asm, @out);
 	for my $reg (@r16) {
@@ -233,11 +242,11 @@ sub test_lea {
 	done_testing;
 }
 
-
 subtest mov_reg => \&test_mov_reg;
 subtest mov_const => \&test_mov_const;
 subtest mov_mem => \&test_mov_mem;
 subtest mov_mem_imm => \&test_mov_mem_imm;
 subtest mov_ax_addr => \&test_mov_ax_addr;
+subtest mov => \&test_mov;
 subtest lea => \&test_lea;
 done_testing;

@@ -3,6 +3,7 @@ package CPU::x86_64::InstructionWriter;
 use v5.10;
 use Moo 2;
 use Carp;
+use Scalar::Util 'looks_like_number';
 use Exporter 'import';
 use CPU::x86_64::InstructionWriter::Unknown;
 
@@ -40,6 +41,63 @@ you call them.  It supports lazy-resolved jump labels, and lazy-bound constants 
 assigned a value after the instructions have been assembled.
 
 B<Note:> This module currently requires a perl with 64-bit integers and C<pack('Q')> support.
+
+=head1 NOTATIONS
+
+The method names of this class loosely match the NASM notation, but with the addition of the
+number of data bits following the opcode name and list of arguments.
+
+    MOV EAX, [EBX]
+    
+    $w->mov32_reg_mem('eax', ['ebx']);
+    
+    # or, short form, with use ::InstructionWriter ':registers'
+    $w->mov(eax,[ebx]);
+
+This helps it run faster than if the method needed to parse out the arguments, and remove
+ambiguity since your code generator probably knows what operation it wants.  Also it takes the
+place if the "qword" attributes that NASM sometimes needs.  However, if you want you can use
+the generic method for an op.
+
+There are often entirely new names given to an opcode (for the somewhat obscure ones) but the
+official Intel/AMD name is provided as an alias.
+
+   CMP EAX EBX
+   JNO label           ; quick, what does JNO mean?
+
+   $w->cmp32_reg_reg('eax','ebx')->jmp_unless_overflow($label);
+   # or:
+   $w->cmp(eax,ebx)->jno(\"mylabel");
+
+=head1 MEMORY LOCATIONS
+
+Most instructions in the x86 set allow for one argument to be a memory location, composed of
+
+=over
+
+=item A B<base> register
+
+=item plus a constant B<displacement> (usually limited to 32-bit)
+
+=item plus an B<index> register times a B<scale> of 1, 2, 4, or 8
+
+=back
+
+    [ $base, $displacement, $index, $scale ]
+
+Leave a slot in the array C<undef> to skip it.  (but obviously one of them must be set)
+You may also allocate a smaller array to imply the remeaining items are undef.
+
+Examples:
+
+    ['rdx']                       # address RDX
+    ['rbx', -20000]               # address RBX-20000
+    [undef, 0x7FFFFFFF]           # address 0x7FFFFFFF
+    [undef, undef, 'ecx', 8]      # address ECX*8
+
+NASM supports scales like [EAX*5] by silently converting that to [EAX+EAX*4], but this module
+does not support that via the B<scale> field.  (it would just slow things down for a feature
+nobody uses)
 
 =cut
 
@@ -98,6 +156,12 @@ my %regnum8_high= (
 	AH => 4, CH => 5, DH => 6, BH => 7,
 	ah => 4, ch => 5, dh => 6, bh => 7,
 );
+my %register_bits= (
+	(map { $_ => 64 } keys %regnum64),
+	(map { $_ => 32 } keys %regnum32),
+	(map { $_ => 16 } keys %regnum16),
+	(map { $_ =>  8 } keys %regnum8),
+);
 
 sub unknown   { CPU::x86_64::InstructionWriter::Unknown->new(name => $_[0]); }
 sub unknown8  { CPU::x86_64::InstructionWriter::Unknown->new(bits =>  8, name => $_[0]); }
@@ -115,11 +179,33 @@ our %EXPORT_TAGS= (
 );
 our @EXPORT_OK= ( map { @{$_} } values %EXPORT_TAGS );
 
+=head1 ATTRIBUTES
+
+=head2 start_address
+
+You might or might not need to set this.  Some instructions care about what address they live
+at for things like RIP-relative addressing.  The default value is an object of class "unknown".
+Things that depend on it will also be represented by "unknown" until the start_address has been
+given a value.  If you try to resolve them numerically before start_address is set, you get an
+exception.
+
+=cut
+
 has start_address         => ( is => 'rw', default => sub { unknown64() } );
 
 has _buf                  => ( is => 'rw', default => sub { '' } );
 has _unresolved           => ( is => 'rw', default => sub { [] } );
+
+=head2 labels
+
+This is a set of all labels currently relevant to this writer, indexed by name (so names must
+be unique).   You probably don't need to access this.  See L</get_label> and L</mark>.
+
+=cut
+
 has labels                => ( is => 'rw', default => sub {; {} } );
+
+=head1 METHODS
 
 =head2 get_label
 
@@ -129,7 +215,7 @@ has labels                => ( is => 'rw', default => sub {; {} } );
 Return a label object for the given name, or if no name is given, return an anonymous label.
 
 The label objects returned can be assigned a location within the instruction stream using L</mark>
-and used as thetarget for C<JMP> and C<JMP>-like instructions.  A label can also be used as a
+and used as the target for C<JMP> and C<JMP>-like instructions.  A label can also be used as a
 constant once all variable-length instructions have been L</resolve>d and once L</start_address>
 is defined.
 
@@ -149,9 +235,9 @@ sub get_label {
 
 =head2 mark
 
-  ->mark($label_ref)  # bind label object to current position
-  ->mark($undef_var)  # like above, but create anonymous label object and assign to $var
-  ->mark($label_name) # like above, but create/lookup label object by name
+  ->mark($label_ref)     # bind label object to current position
+  ->mark(my $new_label)  # like above, but create anonymous label object and assign to $new_label
+  ->mark($label_name)    # like above, but create/lookup label object by name
 
 Bind a named label to the current position in the instruction buffer.  You can also pass a label
 reference from L</get_label>, or an undef variable which will be assigned a label.
@@ -525,6 +611,37 @@ sub loopnz      { shift->_append_jmp_cx(0xE0, shift) }
 
 =over
 
+=item C<mov($dest, $src, $bits)>
+
+Generic top-level instruction method that dispatches to more specific versions of mov based on
+the arguments you gave it.  The third argument is optional if one of the other arguments is a
+register.
+
+=cut
+
+sub mov {
+	my ($self, $dst, $src, $bits)= @_;
+	$self->_autodetect_signature_dst_src('mov', $dst, $src, $bits)->($self, $dst, $src);
+}
+sub _autodetect_signature_dst_src {
+	my ($self, $opname, $dst, $src, $bits)= @_;
+	$bits ||= $register_bits{$dst} || $register_bits{$src}
+		or croak "Can't determine bit-width of ".uc($opname)." instruction. "
+		        ."Use ->$opname(\$dst, \$src, \$bits) to clarify, when there is no register";
+	my $dst_type= $register_bits{$dst}? 'reg'
+	            : ref $dst eq 'ARRAY'? 'mem'
+	            : looks_like_number($dst)? 'imm'
+	            : croak "Can't identify type of destination operand $dst";
+	my $src_type= $register_bits{$src}? 'reg'
+	            : ref $src eq 'ARRAY'? 'mem'
+	            : looks_like_number($src)? 'imm'
+	            : croak "Can't identify type of source operand $src";
+	my $method= "$opname${bits}_${dst_type}_${src_type}";
+	return $self->can($method) || croak "No ".uc($opname)." variant $method available";
+}
+
+=over
+
 =item C<mov64_reg_reg($dest_reg, $src_reg)>
 
 Copy second register to first register.  Copies full 64-bit value.
@@ -532,6 +649,9 @@ Copy second register to first register.  Copies full 64-bit value.
 =cut
 
 sub mov64_reg_reg { shift->_append_op64_reg_reg(0x89, $_[1], $_[0]) }
+sub mov32_reg_reg { shift->_append_op32_reg_reg(0x89, $_[1], $_[0]) }
+sub mov16_reg_reg { shift->_append_op16_reg_reg(0x89, $_[1], $_[0]) }
+sub mov8_reg_reg  { shift->_append_op8_reg_reg (0x89, $_[1], $_[0]) }
 
 =item C<mov##_mem_reg($mem, $reg)>
 
