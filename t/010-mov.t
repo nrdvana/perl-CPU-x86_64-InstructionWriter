@@ -223,21 +223,24 @@ sub test_lea {
 			\@out, sub { new_writer->lea16_reg_mem($reg, [@_])->bytes }
 		);
 	}
-	asm_ok( \@out, \@asm, 'lea16_mem_reg' );
+	asm_ok( \@out, \@asm, 'lea16_reg_mem' );
 	for my $reg (@r32) {
 		iterate_mem_addr_combos(
 			\@asm, sub { "lea $reg, $_[0]" },
 			\@out, sub { new_writer->lea32_reg_mem($reg, [@_])->bytes }
 		);
 	}
-	asm_ok( \@out, \@asm, 'lea632_mem_reg' );
+	asm_ok( \@out, \@asm, 'lea32_reg_mem' );
 	for my $reg (@r64) {
 		iterate_mem_addr_combos(
 			\@asm, sub { "lea $reg, $_[0]" },
 			\@out, sub { new_writer->lea64_reg_mem($reg, [@_])->bytes }
 		);
 	}
-	asm_ok( \@out, \@asm, 'lea64_mem_reg' );
+	asm_ok( \@out, \@asm, 'lea64_reg_mem' );
+	
+	push @asm,            "lea EAX, RBX\n    lea EAX [RBX]\n     lea EAX [RBX+RCX*2]\n";
+	push @out, new_writer->lea('EAX','EBX')->lea('EAX',['RBX'])->lea('EAX',['RBX',undef,'RCX',2])->bytes;
 
 	done_testing;
 }

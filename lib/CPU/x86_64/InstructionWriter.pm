@@ -290,6 +290,26 @@ sub bytes {
 The following methods append an instruction to the buffer, and return C<$self> so you can continue
 calling instructions in a chain.
 
+=cut
+
+sub _autodetect_signature_dst_src {
+	my ($self, $opname, $dst, $src, $bits)= @_;
+	$bits ||= $register_bits{$dst} || $register_bits{$src}
+		or croak "Can't determine bit-width of ".uc($opname)." instruction. "
+		        ."Use ->$opname(\$dst, \$src, \$bits) to clarify, when there is no register";
+	my $dst_type= $register_bits{$dst}? 'reg'
+	            : ref $dst eq 'ARRAY'? 'mem'
+	            : looks_like_number($dst)? 'imm'
+	            : croak "Can't identify type of destination operand $dst";
+	my $src_type= $register_bits{$src}? 'reg'
+	            : ref $src eq 'ARRAY'? 'mem'
+	            : looks_like_number($src)? 'imm'
+	            : croak "Can't identify type of source operand $src";
+	my $method= "$opname${bits}_${dst_type}_${src_type}";
+	($self->can($method) || croak "No ".uc($opname)." variant $method available")
+		->($self, $dst, $src);
+}
+
 =head2 NOP, PAUSE
 
 Insert one or more no-op instructions.
@@ -619,26 +639,7 @@ register.
 
 =cut
 
-sub mov {
-	my ($self, $dst, $src, $bits)= @_;
-	$self->_autodetect_signature_dst_src('mov', $dst, $src, $bits)->($self, $dst, $src);
-}
-sub _autodetect_signature_dst_src {
-	my ($self, $opname, $dst, $src, $bits)= @_;
-	$bits ||= $register_bits{$dst} || $register_bits{$src}
-		or croak "Can't determine bit-width of ".uc($opname)." instruction. "
-		        ."Use ->$opname(\$dst, \$src, \$bits) to clarify, when there is no register";
-	my $dst_type= $register_bits{$dst}? 'reg'
-	            : ref $dst eq 'ARRAY'? 'mem'
-	            : looks_like_number($dst)? 'imm'
-	            : croak "Can't identify type of destination operand $dst";
-	my $src_type= $register_bits{$src}? 'reg'
-	            : ref $src eq 'ARRAY'? 'mem'
-	            : looks_like_number($src)? 'imm'
-	            : croak "Can't identify type of source operand $src";
-	my $method= "$opname${bits}_${dst_type}_${src_type}";
-	return $self->can($method) || croak "No ".uc($opname)." variant $method available";
-}
+sub mov { splice(@_,1,0,'mov'); &_autodetect_signature_dst_src }
 
 =over
 
@@ -797,9 +798,16 @@ TODO...
 
 =over
 
+=item C<lea($reg, $src, $bits)>
+
+Dispatch to a variant of LEA based on argument types.
+
 =item C<lea16_reg_mem($reg16, \@mem)>
 =item C<lea32_reg_mem($reg32, \@mem)>
 =item C<lea64_reg_mem($reg64, \@mem)>
+=item C<lea16_reg_reg($reg16, $reg64)>
+=item C<lea32_reg_reg($reg32, $reg64)>
+=item C<lea64_reg_reg($reg64, $reg64)>
 
 =back
 
@@ -809,8 +817,13 @@ is loading a pointer and the second is loading the value it points to.
 
 =cut
 
+sub lea { splice(@_,1,0,'lea'); &_autodetect_signature_dst_src }
+
+sub lea16_reg_reg { $_[0]->_append_op16_reg_reg(   0x8D, $_[1], $_[2]) }
 sub lea16_reg_mem { $_[0]->_append_op16_reg_mem(0, 0x8D, $_[1], $_[2]) }
+sub lea32_reg_reg { $_[0]->_append_op32_reg_reg(   0x8D, $_[1], $_[2]) }
 sub lea32_reg_mem { $_[0]->_append_op32_reg_mem(0, 0x8D, $_[1], $_[2]) }
+sub lea64_reg_reg { $_[0]->_append_op64_reg_reg(   0x8D, $_[1], $_[2]) }
 sub lea64_reg_mem { $_[0]->_append_op64_reg_mem(8, 0x8D, $_[1], $_[2]) }
 
 =over
@@ -825,6 +838,8 @@ multi-word addition.
 
 =over
 
+=item C<add($dst, $src, $bits)>
+
 =item C<add##_reg_reg($dest, $src)>
 
 =item C<add##_reg_mem($reg, \@mem)>
@@ -838,6 +853,8 @@ multi-word addition.
 Returns $self, for chaining.
 
 =cut
+
+sub add { splice(@_,1,0,'add'); &_autodetect_signature_dst_src }
 
 sub add64_reg_reg { $_[0]->_append_op64_reg_reg(0x01, $_[2], $_[1]) }
 sub add32_reg_reg { $_[0]->_append_op32_reg_reg(0x01, $_[2], $_[1]) }
@@ -864,6 +881,8 @@ sub add32_mem_imm { $_[0]->_append_mathop32_const_to_mem(0x83, 0x81, 0, $_[2], $
 sub add16_mem_imm { $_[0]->_append_mathop16_const_to_mem(0x83, 0x81, 0, $_[2], $_[1]) }
 sub add8_mem_imm  { $_[0]->_append_mathop8_const_to_mem (0x80, 0, $_[2], $_[1]) }
 
+=item C<addcarry($dst, $src, $bits), adc($dst, $src, $bits)>
+
 =item C<addcarry##_reg(reg64, reg64)>
 
 =item C<addcarry##_mem(reg64, base_reg64, displacement, index_reg64, scale)>
@@ -879,6 +898,9 @@ sub add8_mem_imm  { $_[0]->_append_mathop8_const_to_mem (0x80, 0, $_[2], $_[1]) 
 Returns $self, for chaining.
 
 =cut
+
+sub addcarry { splice(@_,1,0,'addcarry'); &_autodetect_signature_dst_src }
+*adc= *addcarry;
 
 sub addcarry64_reg_reg { $_[0]->_append_op64_reg_reg(0x11, $_[2], $_[1]) }
 sub addcarry32_reg_reg { $_[0]->_append_op32_reg_reg(0x11, $_[2], $_[1]) }
@@ -909,6 +931,8 @@ sub addcarry8_mem_imm  { $_[0]->_append_mathop8_const_to_mem (0x80, 2, $_[2], $_
 
 =over
 
+=item C<and($dst, $src, $bits)>
+
 =item C<and##_reg_reg($dest, $src)>
 
 =item C<and##_reg_mem($reg, \@mem)>
@@ -922,6 +946,8 @@ sub addcarry8_mem_imm  { $_[0]->_append_mathop8_const_to_mem (0x80, 2, $_[2], $_
 =back
 
 =cut
+
+sub and { splice(@_,1,0,'and'); &_autodetect_signature_dst_src }
 
 sub and64_reg_reg { $_[0]->_append_op64_reg_reg(0x21, $_[2], $_[1]) }
 sub and32_reg_reg { $_[0]->_append_op32_reg_reg(0x21, $_[2], $_[1]) }
@@ -952,6 +978,8 @@ sub and8_mem_imm  { $_[0]->_append_mathop8_const_to_mem (0x80, 4, $_[2], $_[1]) 
 
 =over
 
+=item C<or($dst, $src, $bits)>
+
 =item C<or##_reg(reg64, reg64)>
 
 =item C<or##_mem(reg64, base_reg64, displacement, index_reg64, scale)>
@@ -965,6 +993,8 @@ sub and8_mem_imm  { $_[0]->_append_mathop8_const_to_mem (0x80, 4, $_[2], $_[1]) 
 =back
 
 =cut
+
+sub or { splice(@_,1,0,'or'); &_autodetect_signature_dst_src }
 
 sub or64_reg_reg { $_[0]->_append_op64_reg_reg(0x09, $_[2], $_[1]) }
 sub or32_reg_reg { $_[0]->_append_op32_reg_reg(0x09, $_[2], $_[1]) }
@@ -995,6 +1025,8 @@ sub or8_mem_imm  { $_[0]->_append_mathop8_const_to_mem (0x80, 1, $_[2], $_[1]) }
 
 =over
 
+=item C<xor($dst, $src, $bits)>
+
 =item C<xor##_reg(reg64, reg64)>
 
 =item C<xor##_mem(reg64, base_reg64, displacement, index_reg64, scale)>
@@ -1008,6 +1040,8 @@ sub or8_mem_imm  { $_[0]->_append_mathop8_const_to_mem (0x80, 1, $_[2], $_[1]) }
 =back
 
 =cut
+
+sub xor { splice(@_,1,0,'xor'); &_autodetect_signature_dst_src }
 
 sub xor64_reg_reg { $_[0]->_append_op64_reg_reg(0x31, $_[2], $_[1]) }
 sub xor32_reg_reg { $_[0]->_append_op32_reg_reg(0x31, $_[2], $_[1]) }
@@ -1041,6 +1075,8 @@ Shift left by a constant or the CL register.  The shift is at most 63 bits for
 
 =over
 
+=item C<shl($dst, $src, $bits)>
+
 =item C<shl##_reg_imm( $reg, $const )>
 
 =item C<shl##_mem_imm( \@mem, $const )>
@@ -1052,6 +1088,8 @@ Shift left by a constant or the CL register.  The shift is at most 63 bits for
 =back
 
 =cut
+
+sub shl { splice(@_,1,0,'shl'); &_autodetect_signature_dst_src }
 
 sub shl64_reg_imm { $_[0]->_append_shiftop_reg_imm(64, 0xD1, 0xC1, 4, $_[1], $_[2]) }
 sub shl32_reg_imm { $_[0]->_append_shiftop_reg_imm(32, 0xD1, 0xC1, 4, $_[1], $_[2]) }
@@ -1080,6 +1118,8 @@ Shift right by a constant or the CL register.  The shift is at most 63 bits for
 
 =over
 
+=item C<shr($dst, $src, $bits)>
+
 =item C<shr##_reg_imm( $reg, $const )>
 
 =item C<shr##_mem_imm( \@mem, $const )>
@@ -1091,6 +1131,8 @@ Shift right by a constant or the CL register.  The shift is at most 63 bits for
 =back
 
 =cut
+
+sub shr { splice(@_,1,0,'shr'); &_autodetect_signature_dst_src }
 
 sub shr64_reg_imm { $_[0]->_append_shiftop_reg_imm(64, 0xD1, 0xC1, 5, $_[1], $_[2]) }
 sub shr32_reg_imm { $_[0]->_append_shiftop_reg_imm(32, 0xD1, 0xC1, 5, $_[1], $_[2]) }
@@ -1120,6 +1162,8 @@ The shift is at most 63 bits for 64-bit register, or 31 bits otherwise.
 
 =over
 
+=item C<sar($dst, $src, $bits)>
+
 =item C<sar##_reg_imm( $reg, $const )>
 
 =item C<sar##_mem_imm( \@mem, $const )>
@@ -1131,6 +1175,8 @@ The shift is at most 63 bits for 64-bit register, or 31 bits otherwise.
 =back
 
 =cut
+
+sub sar { splice(@_,1,0,'sar'); &_autodetect_signature_dst_src }
 
 sub sar64_reg_imm { $_[0]->_append_shiftop_reg_imm(64, 0xD1, 0xC1, 7, $_[1], $_[2]) }
 sub sar32_reg_imm { $_[0]->_append_shiftop_reg_imm(32, 0xD1, 0xC1, 7, $_[1], $_[2]) }
@@ -1174,6 +1220,8 @@ Like SUB, but don't modify any arguments, just update RFLAGS.
 
 =over
 
+=item C<cmp($dst, $src, $bits)>
+
 =item C<cmp##_reg_reg($dest, $src)>
 
 =item C<cmp##_reg_mem($reg, \@mem)>
@@ -1195,6 +1243,8 @@ Subtract const from contents of mem address
 =back
 
 =cut
+
+sub cmp { splice(@_,1,0,'cmp'); &_autodetect_signature_dst_src }
 
 sub cmp64_reg_reg { $_[0]->_append_op64_reg_reg(0x39, $_[2], $_[1]) }
 sub cmp32_reg_reg { $_[0]->_append_op32_reg_reg(0x39, $_[2], $_[1]) }
@@ -1228,6 +1278,8 @@ Note that order of arguments does not matter, and there is no "to_mem" variant.
 
 =over
 
+=item C<test($dst, $src, $bits)>
+
 =item C<test##_reg_reg($dest, $src)>
 
 =item C<test##_reg_mem($reg, \@mem)>
@@ -1239,6 +1291,8 @@ Note that order of arguments does not matter, and there is no "to_mem" variant.
 =back
 
 =cut
+
+sub test { splice(@_,1,0,'test'); &_autodetect_signature_dst_src }
 
 sub test64_reg_reg { $_[0]->_append_op64_reg_reg(0x85, $_[2], $_[1]) }
 sub test32_reg_reg { $_[0]->_append_op32_reg_reg(0x85, $_[2], $_[1]) }
