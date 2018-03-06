@@ -320,12 +320,15 @@ sub ret {
 =head2 JMP
 
 All jump instructions are relative, and take either a numeric offset (from the start of the next
-instruction) or a label, except the C<jmp_abs> instruction which takes a register containing the
-target address, and the C<jmp_from_addr> which reads a memory address for the address to jump to.
+instruction) or a label, except the C<jmp_abs_reg> instruction which takes a register containing the
+target address, and the C<jmp_abs_mem> which reads a memory address for the address to jump to.
+
+If you pass an undefined variable as a label it will be auto-populated with a label object.
+Otherwise the label should be a string (label name) or label object obtained from L</get_label>.
 
 =over
 
-=item jmp
+=item C<jmp($label)>
 
 Unconditional jump to label (or 32-bit offset constant).
 
@@ -378,9 +381,9 @@ sub jmp_abs_mem {
 	$_[0]->_append_op64_reg_mem(0, 0xFF, 4, $_[1]);
 }
 
-=item jmp_if_eq, je, jz
+=item C<jmp_if_eq>, C<je>, C<jz>
 
-=item jmp_if_ne, jne, jnz
+=item C<jmp_if_ne>, C<jne>, C<jnz>
 
 Jump to label if zero flag is/isn't set after CMP instruction
 
@@ -394,13 +397,13 @@ sub jmp_if_ne { shift->_append_jmp_cond(5, shift) }
 *jne= *jmp_if_ne;
 *jnz= *jmp_if_ne;
 
-=item jmp_if_unsigned_lt, jb, jmp_if_carry, jc
+=item C<jmp_if_unsigned_lt>, C<jb>, C<jmp_if_carry>, C<jc>
 
-=item jmp_if_unsigned_gt, ja
+=item C<jmp_if_unsigned_gt>, C<ja>
 
-=item jmp_if_unsigned_le, jbe
+=item C<jmp_if_unsigned_le>, C<jbe>
 
-=item jmp_if_unsigned_ge, jae, jmp_unless_carry, jnc
+=item C<jmp_if_unsigned_ge>, C<jae>, C<jmp_unless_carry>, C<jnc>
 
 Jump to label if unsigned less-than / greater-than / less-or-equal / greater-or-equal
 
@@ -420,13 +423,13 @@ sub jmp_if_unsigned_ge { shift->_append_jmp_cond(3, shift) }
 *jae= *jmp_if_unsigned_ge;
 *jnc= *jmp_if_unsigned_ge;
 
-=item jmp_if_signed_lt, jl
+=item C<jmp_if_signed_lt>, C<jl>
 
-=item jmp_if_signed_gt, jg
+=item C<jmp_if_signed_gt>, C<jg>
 
-=item jmp_if_signed_le, jle
+=item C<jmp_if_signed_le>, C<jle>
 
-=item jmp_if_signed_ge, jge
+=item C<jmp_if_signed_ge>, C<jge>
 
 Jump to label if signed less-than / greater-than / less-or-equal / greater-or-equal
 
@@ -444,21 +447,21 @@ sub jmp_if_signed_le { shift->_append_jmp_cond(14, shift) }
 sub jmp_if_signed_ge { shift->_append_jmp_cond(13, shift) }
 *jge= *jmp_if_signed_ge;
 
-=item jmp_if_sign, js
+=item C<jmp_if_sign>, C<js>
 
-=item jmp_unless_sign, jns
+=item C<jmp_unless_sign>, C<jns>
 
 Jump to label if 'sign' flag is/isn't set after CMP instruction
 
-=item jmp_if_overflow, jo
+=item C<jmp_if_overflow>, C<jo>
 
-=item jmp_unless_overflow, jno
+=item C<jmp_unless_overflow>, C<jno>
 
 Jump to label if overflow flag is/isn't set after CMP instruction
 
-=item jmp_if_parity_even, jpe, jp
+=item C<jmp_if_parity_even>, C<jpe>, C<jp>
 
-=item jmp_if_parity_odd, jpo, jnp
+=item C<jmp_if_parity_odd>, C<jpo>, C<jnp>
 
 Jump to label if 'parity' flag is/isn't set after CMP instruction
 
@@ -484,21 +487,21 @@ sub jmp_if_parity_odd   { shift->_append_jmp_cond(11, shift) }
 *jpo= *jmp_if_parity_odd;
 *jnp= *jmp_if_parity_odd;
 
-=item jmp_cx_zero, jrcxz
+=item C<jmp_cx_zero>, C<jrcxz>
 
 Short-jump to label if RCX register is zero
 
-=item loop
+=item C<loop>
 
 Decrement RCX and short-jump to label if RCX register is nonzero
 (decrement of RCX does not change rFLAGS)
 
-=item loopz, loope
+=item C<loopz>, C<loope>
 
 Decrement RCX and short-jump to label if RCX register is nonzero and zero flag (ZF) is set.
 (decrement of RCX does not change rFLAGS)
 
-=item loopnz, loopne
+=item C<loopnz>, C<loopne>
 
 Decrement RCX and short-jump to label if RCX register is nonzero and zero flag (ZF) is not set
 (decrement of RCX does not change rFLAGS)
@@ -645,6 +648,8 @@ multi-word addition.
 
 =item C<add##_mem_imm(\@mem, $const)>
 
+Returns $self, for chaining.
+
 =cut
 
 sub add64_reg_reg { $_[0]->_append_op64_reg_reg(0x01, $_[2], $_[1]) }
@@ -683,6 +688,8 @@ sub add8_mem_imm  { $_[0]->_append_mathop8_const_to_mem (0x80, 0, $_[2], $_[1]) 
 =item C<addcarry##_const_to_mem(const, base_reg64, displacement, index_reg64, scale)>
 
 =back
+
+Returns $self, for chaining.
 
 =cut
 
@@ -2030,10 +2037,13 @@ sub _append_shiftop_mem_imm {
 	$self;
 }
 
-=head2 C<_encode_jmp_cond>
+=head2 C<_append_jmp_cond($cond_code, $label)>
 
-Encodes a conditional jump instruction, which is either the short 2-byte form for 8-bit offsets,
-or 6 bytes for jumps of 32-bit offsets.
+Appends a conditional jump instruction, which is either the short 2-byte form for 8-bit offsets,
+or 6 bytes for jumps of 32-bit offsets.  The implementation optimistically assumes the 2-byte
+length until L<resolve> is called, when the actual length will be determined.
+
+Returns $self, for chaining.
 
 =cut
 
@@ -2058,6 +2068,13 @@ sub _append_jmp_cond {
 	);
 	$self;
 }
+
+=head2 C<_append_jmp_cx($opcode, $label)>
+
+Appends one of the special CX-related jumps (like L</loop>).  These can only have an 8-bit offset
+and are fixed-length.
+
+=cut
 
 sub _append_jmp_cx {
 	my ($self, $op, $label)= @_;
@@ -2097,6 +2114,23 @@ sub _append_possible_unknown {
 	$self;
 }
 
+=head2 C<_mark_unresolved($location, encode => sub {...}, %other)>
+
+Creates a new unresolved marker in the instruction stream, indicating things which can't be known
+until the entire instruction stream is written. (such as jump instructions).
+
+The parameters 'start' and 'len' will be filled in automatically based on the $location parameter.
+If C<$location> is negative, it indicates start is that many bytes backward from the end of the
+buffer.  If C<$location> is positive, it means the unresolved symbol hasn't been written yet and
+the 'start' will be the current end of the buffer and 'len' is the value of $location.
+
+The other usual (but not required) parameter is 'encode'.  This references a method callback which
+will return the encoded instruction (or die, if there is still not enough information to do so).
+
+All C<%other> parameters are passed to the callback as a HASHREF.
+
+=cut
+
 sub _mark_unresolved {
 	my ($self, $location)= (shift, shift);
 	my $start= length($self->{_buf});
@@ -2128,32 +2162,46 @@ sub _repack {
 	return pack($pack, $v & ~(~0 << $bits));
 }
 
+=head2 C<_resovle>
+
+This is the algorithm that resolves the unresolved instructions.  It takes an iterative approach
+that is relatively efficient as long as the predicted lengths of the unresolved instructions are
+correct.  If many instructions guess the wrong length then this could get slow for very long
+instruction strings.
+
+=cut
+
 sub _resolve {
 	my $self= shift;
 	
-	# Start by making sure every instruction is the length it needs to be
+	# We repeat the process any time something changed length
 	my $changed_len= 1;
 	while ($changed_len) {
 		$changed_len= 0;
+		
+		# Track the amount we have shifted the current instruction in $ofs
 		my $ofs= 0;
 		for my $p (@{ $self->_unresolved }) {
 			#print "Shifting $p by $ofs\n" if $ofs;
 			$p->{start} += $ofs if $ofs;
+			
+			# Ignore things without an 'encode' callback (like labels)
 			my $fn= $p->{encode}
 				or next;
-			my $enc= $p->{encoded}= $self->$fn($p);
+			
+			# Get new encoding, then replace those bytes in the instruction string
+			my $enc= $self->$fn($p);
 			substr($self->{_buf}, $p->{start}, $p->{len})= $enc;
+			
+			# If the length changed, update $ofs and current ->len
 			if (length($enc) != $p->{len}) {
-				#print "New size is $result\n";
+				#print "New size is ".length($enc)."\n";
 				$changed_len= 1;
 				$ofs += (length($enc) - $p->{len});
 				$p->{len}= length($enc);
 			}
 		}
 	}
-	
-	# Clear the list
-	@{ $self->_unresolved }= ();
 }
 
 1;
