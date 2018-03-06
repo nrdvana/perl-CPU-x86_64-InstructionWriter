@@ -630,6 +630,30 @@ sub mov8_mem_imm  { $_[0]->_append_op8_const_to_mem (0xC6, 0, $_[2], $_[1]) }
 
 TODO...
 
+=head2 LEA
+
+=over
+
+=item C<lea16_reg_mem($reg16, \@mem)>
+=item C<lea32_reg_mem($reg32, \@mem)>
+=item C<lea64_reg_mem($reg64, \@mem)>
+
+=back
+
+Load the address of the 64-bit value stored at L<memory location>.
+It is essentially a shorthand for two memory load operations where the first
+is loading a pointer and the second is loading the value it points to.
+
+=cut
+
+sub lea16_reg_mem { $_[0]->_append_op16_reg_mem(0, 0x8D, $_[1], $_[2]) }
+sub lea32_reg_mem { $_[0]->_append_op32_reg_mem(0, 0x8D, $_[1], $_[2]) }
+sub lea64_reg_mem { $_[0]->_append_op64_reg_mem(8, 0x8D, $_[1], $_[2]) }
+
+=over
+
+=item 
+
 =head2 ADD, ADC
 
 The add## variants are the plain ADD instruction, for each bit width.

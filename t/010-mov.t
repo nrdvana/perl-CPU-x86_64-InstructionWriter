@@ -138,8 +138,37 @@ sub test_mov_mem_imm {
 	asm_ok( \@out, \@asm, 'mov64_mem_imm' );
 }
 
+sub test_lea {
+	my (@asm, @out);
+	for my $reg (@r16) {
+		iterate_mem_addr_combos(
+			\@asm, sub { "lea $reg, $_[0]" },
+			\@out, sub { new_writer->lea16_reg_mem($reg, [@_])->bytes }
+		);
+	}
+	asm_ok( \@out, \@asm, 'lea16_mem_reg' );
+	for my $reg (@r32) {
+		iterate_mem_addr_combos(
+			\@asm, sub { "lea $reg, $_[0]" },
+			\@out, sub { new_writer->lea32_reg_mem($reg, [@_])->bytes }
+		);
+	}
+	asm_ok( \@out, \@asm, 'lea632_mem_reg' );
+	for my $reg (@r64) {
+		iterate_mem_addr_combos(
+			\@asm, sub { "lea $reg, $_[0]" },
+			\@out, sub { new_writer->lea64_reg_mem($reg, [@_])->bytes }
+		);
+	}
+	asm_ok( \@out, \@asm, 'lea64_mem_reg' );
+
+	done_testing;
+}
+
+
 subtest mov_reg => \&test_mov_reg;
 subtest mov_const => \&test_mov_const;
 subtest mov_mem => \&test_mov_mem;
 subtest mov_mem_imm => \&test_mov_mem_imm;
+subtest lea => \&test_lea;
 done_testing;
