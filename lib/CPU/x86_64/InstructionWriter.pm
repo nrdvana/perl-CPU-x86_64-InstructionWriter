@@ -621,10 +621,10 @@ Constant may be an expression.
 
 =cut
 
-sub mov64_mem_imm { $_[0]->_append_op64_const_mem(0xC7, 0, $_[2], $_[1]) }
-sub mov32_mem_imm { $_[0]->_append_op32_const_mem(0xC7, 0, $_[2], $_[1]) }
-sub mov16_mem_imm { $_[0]->_append_op16_const_mem(0xC7, 0, $_[2], $_[1]) }
-sub mov8_mem_imm  { $_[0]->_append_op8_const_mem (0xC6, 0, $_[2], $_[1]) }
+sub mov64_mem_imm { $_[0]->_append_op64_const_to_mem(0xC7, 0, $_[2], $_[1]) }
+sub mov32_mem_imm { $_[0]->_append_op32_const_to_mem(0xC7, 0, $_[2], $_[1]) }
+sub mov16_mem_imm { $_[0]->_append_op16_const_to_mem(0xC7, 0, $_[2], $_[1]) }
+sub mov8_mem_imm  { $_[0]->_append_op8_const_to_mem (0xC6, 0, $_[2], $_[1]) }
 
 =head2 CMOV
 
@@ -1714,6 +1714,52 @@ sub _append_op8_opreg_mem {
 		if defined $index_reg;
 	$self->_append_possible_unknown('_encode_op_reg_mem', [$rex, $opcode, $opreg, $base_reg, $disp, $index_reg, $scale], 4, 7);
 }
+
+=head2 _append_op##_const_to_mem
+
+Encode standard ##-bit instruction with REX prefix which operates on a constant and then
+writes to a memory location.
+
+=cut
+
+sub _append_op8_const_to_mem {
+	my ($self, $opcode, $opreg, $value, $mem)= @_;
+	my ($base_reg, $disp, $index_reg, $scale)= @$mem;
+	$base_reg= ($regnum64{$base_reg} // croak "$base_reg is not a 64-bit register")
+		if defined $base_reg;
+	$index_reg= ($regnum64{$index_reg} // croak "$index_reg is not a 64-bit register")
+		if defined $index_reg;
+	$self->_append_possible_unknown('_encode_op_reg_mem', [ 0, $opcode, $opreg, $base_reg, $disp, $index_reg, $scale, 'C', $value ], ref $disp? 4 : 8, defined $disp? 16:12);
+}
+sub _append_op16_const_to_mem {
+	my ($self, $opcode, $opreg, $value, $mem)= @_;
+	my ($base_reg, $disp, $index_reg, $scale)= @$mem;
+	$base_reg= ($regnum64{$base_reg} // croak "$base_reg is not a 64-bit register")
+		if defined $base_reg;
+	$index_reg= ($regnum64{$index_reg} // croak "$index_reg is not a 64-bit register")
+		if defined $index_reg;
+	$self->{_buf} .= "\x66";
+	$self->_append_possible_unknown('_encode_op_reg_mem', [ 0, $opcode, $opreg, $base_reg, $disp, $index_reg, $scale, 'v', $value ], ref $disp? 4 : 8, defined $disp? 16:12);
+}
+sub _append_op32_const_to_mem {
+	my ($self, $opcode, $opreg, $value, $mem)= @_;
+	my ($base_reg, $disp, $index_reg, $scale)= @$mem;
+	$base_reg= ($regnum64{$base_reg} // croak "$base_reg is not a 64-bit register")
+		if defined $base_reg;
+	$index_reg= ($regnum64{$index_reg} // croak "$index_reg is not a 64-bit register")
+		if defined $index_reg;
+	$self->_append_possible_unknown('_encode_op_reg_mem', [ 0, $opcode, $opreg, $base_reg, $disp, $index_reg, $scale, 'V', $value ], ref $disp? 4 : 8, defined $disp? 16:12);
+}
+sub _append_op64_const_to_mem {
+	my ($self, $opcode, $opreg, $value, $mem)= @_;
+	my ($base_reg, $disp, $index_reg, $scale)= @$mem;
+	$base_reg= ($regnum64{$base_reg} // croak "$base_reg is not a 64-bit register")
+		if defined $base_reg;
+	$index_reg= ($regnum64{$index_reg} // croak "$index_reg is not a 64-bit register")
+		if defined $index_reg;
+	$self->_append_possible_unknown('_encode_op_reg_mem', [ 8, $opcode, $opreg, $base_reg, $disp, $index_reg, $scale, 'V', $value ], ref $disp? 4 : 8, defined $disp? 16:12);
+}
+
 
 # scale values for the SIB byte
 my %SIB_scale= (

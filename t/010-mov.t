@@ -114,7 +114,32 @@ sub test_mov_mem {
 	done_testing;
 }
 
+sub test_mov_mem_imm {
+	my (@asm, @out);
+	iterate_mem_addr_combos(
+		\@asm, sub { "mov byte $_[0], 42" },
+		\@out, sub { new_writer->mov8_mem_imm([@_], 42)->bytes },
+	);
+	asm_ok( \@out, \@asm, 'mov8_mem_imm' );
+	iterate_mem_addr_combos(
+		\@asm, sub { "mov word $_[0], 42" },
+		\@out, sub { new_writer->mov16_mem_imm([@_], 42)->bytes },
+	);
+	asm_ok( \@out, \@asm, 'mov16_mem_imm' );
+	iterate_mem_addr_combos(
+		\@asm, sub { "mov dword $_[0], 42" },
+		\@out, sub { new_writer->mov32_mem_imm([@_], 42)->bytes },
+	);
+	asm_ok( \@out, \@asm, 'mov32_mem_imm' );
+	iterate_mem_addr_combos(
+		\@asm, sub { "mov qword $_[0], 42" },
+		\@out, sub { new_writer->mov64_mem_imm([@_], 42)->bytes },
+	);
+	asm_ok( \@out, \@asm, 'mov64_mem_imm' );
+}
+
 subtest mov_reg => \&test_mov_reg;
 subtest mov_const => \&test_mov_const;
 subtest mov_mem => \&test_mov_mem;
+subtest mov_mem_imm => \&test_mov_mem_imm;
 done_testing;
