@@ -13,19 +13,19 @@ use CPU::x86_64::InstructionWriter::Unknown;
 
   # POSIX::exit(42);
   my $machine_code= CPU::x86_64::InstructionWriter->new
-    ->mov64_reg_imm( 'RAX', 60 )
-    ->mov64_reg_imm( 'RDI', 42 )
+    ->mov( 'RAX', 60 )
+    ->mov( 'RDI', 42 )
     ->syscall()
     ->bytes;
 
   # if (x == 1) { ++x } else { ++y }
   my $machine_code= CPU::x86_64::InstructionWriter->new
-    ->cmp64_reg_imm( 'RAX', 0 )
-    ->jne('else')        # jump to not-yet-defined label
-    ->inc64_reg( 'RAX' )
+    ->cmp( 'RAX', 0 )
+    ->jne('else')        # jump to not-yet-defined label named 'else'
+    ->inc( 'RAX' )
     ->jmp('end')         # jump to another not-yet-defined label
     ->mark('else')       # resolve previous jump to this address
-    ->inc64_reg( 'RCX' )
+    ->inc( 'RCX' )
     ->mark('end')        # resolve second jump to this address
     ->bytes;
 
@@ -67,7 +67,7 @@ official Intel/AMD name is provided as an alias.
 
    $w->cmp32_reg_reg('eax','ebx')->jmp_unless_overflow($label);
    # or:
-   $w->cmp(eax,ebx)->jno(\"mylabel");
+   $w->cmp(eax,ebx)->jno("mylabel");
 
 =head1 MEMORY LOCATIONS
 
@@ -367,6 +367,21 @@ sub _autodetect_signature_dst_src {
 	my $method= "$opname${bits}_${dst_type}_${src_type}";
 	($self->can($method) || croak "No ".uc($opname)." variant $method available")
 		->($self, $dst, $src);
+}
+
+sub _autodetect_signature_1op {
+	my ($self, $opname, $operand, $bits)= @_;
+	my $opr_type= $register_bits{$operand};
+	$bits ||= $opr_type
+		or croak "Can't determine bit-width of ".uc($opname)." instruction. "
+		        ."Use ->$opname(\$arg, \$bits) to clarify, when \$arg is not a register";
+	$opr_type= $opr_type? 'reg'
+	         : ref $operand eq 'ARRAY'? 'mem'
+	         : looks_like_number($operand)? 'imm'
+	         : croak "Can't identify type of operand $operand";
+	my $method= "$opname${bits}_${opr_type}";
+	($self->can($method) || croak "No ".uc($opname)." variant $method available")
+		->($self, $operand);
 }
 
 =head2 NOP, PAUSE
@@ -1410,6 +1425,8 @@ sub test8_mem_imm  { $_[0]->_append_mathop8_const_to_mem (0xF6, 0, $_[2], $_[1])
 
 =over
 
+=item C<dec($operand, $bits)>
+
 =item C<dec##_reg($reg)>
 
 =item C<dec##_mem(\@mem)>
@@ -1417,6 +1434,8 @@ sub test8_mem_imm  { $_[0]->_append_mathop8_const_to_mem (0xF6, 0, $_[2], $_[1])
 =back
 
 =cut
+
+sub dec { splice(@_,1,0,'dec'); &_autodetect_signature_1op; }
 
 sub dec64_reg { $_[0]->_append_op64_reg_reg(0xFF, 1, $_[1]) }
 sub dec32_reg { $_[0]->_append_op32_reg_reg(0xFF, 1, $_[1]) }
@@ -1432,6 +1451,8 @@ sub dec8_mem  { $_[0]->_append_op8_reg_mem (0, 0xFE, 1, $_[1]) }
 
 =over
 
+=item C<inc($operand, $bits)>
+
 =item C<inc##_reg($reg)>
 
 =item C<inc##_mem(\@mem)>
@@ -1439,6 +1460,8 @@ sub dec8_mem  { $_[0]->_append_op8_reg_mem (0, 0xFE, 1, $_[1]) }
 =back
 
 =cut
+
+sub inc { splice(@_,1,0,'inc'); &_autodetect_signature_1op; }
 
 sub inc64_reg { $_[0]->_append_op64_reg_reg(0xFF, 0, $_[1]) }
 sub inc32_reg { $_[0]->_append_op32_reg_reg(0xFF, 0, $_[1]) }
@@ -1464,6 +1487,8 @@ Flip all bits in a target register or memory location.
 
 =cut
 
+sub not { splice(@_,1,0,'not'); &_autodetect_signature_1op; }
+
 sub not64_reg { $_[0]->_append_op64_reg_reg(0xF7, 2, $_[1]) }
 sub not32_reg { $_[0]->_append_op32_reg_reg(0xF7, 2, $_[1]) }
 sub not16_reg { $_[0]->_append_op16_reg_reg(0xF7, 2, $_[1]) }
@@ -1488,6 +1513,8 @@ Replace target register or memory location with signed negation (2's complement)
 
 =cut
 
+sub neg { splice(@_,1,0,'neg'); &_autodetect_signature_1op; }
+
 sub neg64_reg { $_[0]->_append_op64_reg_reg(0xF7, 3, $_[1]) }
 sub neg32_reg { $_[0]->_append_op32_reg_reg(0xF7, 3, $_[1]) }
 sub neg16_reg { $_[0]->_append_op16_reg_reg(0xF7, 3, $_[1]) }
@@ -1502,19 +1529,19 @@ sub neg8_mem  { $_[0]->_append_op8_reg_mem (0, 0xF6, 3, $_[1]) }
 
 =over
 
-=item C<divNNu_reg($reg)>
+=item C<div##_reg($reg)>
 
 Unsigned divide of _DX:_AX by a NN-bit register.  (divides AX into AL,AH for 8-bit) 
 
-=item C<divNNu_mem(\@mem)>
+=item C<div##_mem(\@mem)>
 
 Unsigned divide of _DX:_AX by a NN-bit memory value referenced by 64-bit registers
 
-=item C<divNNs_reg($reg)>
+=item C<div##_reg($reg)>
 
 Signed divide of _DX:_AX by a NN-bit register.  (divides AX into AL,AH for 8-bit)
 
-=item C<divNNs_mem(\@mem)>
+=item C<div##_mem(\@mem)>
 
 Signed divide of _DX:_AX by a NN-bit memory value referenced by 64-bit registers
 
@@ -1522,70 +1549,73 @@ Signed divide of _DX:_AX by a NN-bit memory value referenced by 64-bit registers
 
 =cut
 
-sub div64u_reg { $_[0]->_append_op64_reg_reg (0xF7, 6, $_[1]) }
-sub div32u_reg { $_[0]->_append_op32_reg_reg (0xF7, 6, $_[1]) }
-sub div16u_reg { $_[0]->_append_op16_reg_reg (0xF7, 6, $_[1]) }
-sub div8u_reg  { $_[0]->_append_op8_opreg_reg(0xF6, 6, $_[1]) }
+sub div  { splice(@_,1,0,'div' ); &_autodetect_signature_1op; }
+sub idiv { splice(@_,1,0,'idiv'); &_autodetect_signature_1op; }
 
-sub div64u_mem { $_[0]->_append_op64_reg_mem (8, 0xF7, 6, $_[1]) }
-sub div32u_mem { $_[0]->_append_op32_reg_mem (0, 0xF7, 6, $_[1]) }
-sub div16u_mem { $_[0]->_append_op16_reg_mem (0, 0xF7, 6, $_[1]) }
-sub div8u_mem  { $_[0]->_append_op8_opreg_mem(0, 0xF6, 6, $_[1]) }
+sub div64_reg { $_[0]->_append_op64_reg_reg (0xF7, 6, $_[1]) }
+sub div32_reg { $_[0]->_append_op32_reg_reg (0xF7, 6, $_[1]) }
+sub div16_reg { $_[0]->_append_op16_reg_reg (0xF7, 6, $_[1]) }
+sub div8_reg  { $_[0]->_append_op8_opreg_reg(0xF6, 6, $_[1]) }
 
-sub div64s_reg { $_[0]->_append_op64_reg_reg (0xF7, 7, $_[1]) }
-sub div32s_reg { $_[0]->_append_op32_reg_reg (0xF7, 7, $_[1]) }
-sub div16s_reg { $_[0]->_append_op16_reg_reg (0xF7, 7, $_[1]) }
-sub div8s_reg  { $_[0]->_append_op8_opreg_reg(0xF6, 7, $_[1]) }
+sub div64_mem { $_[0]->_append_op64_reg_mem (8, 0xF7, 6, $_[1]) }
+sub div32_mem { $_[0]->_append_op32_reg_mem (0, 0xF7, 6, $_[1]) }
+sub div16_mem { $_[0]->_append_op16_reg_mem (0, 0xF7, 6, $_[1]) }
+sub div8_mem  { $_[0]->_append_op8_opreg_mem(0, 0xF6, 6, $_[1]) }
 
-sub div64s_mem { $_[0]->_append_op64_reg_mem (8, 0xF7, 7, $_[1]) }
-sub div32s_mem { $_[0]->_append_op32_reg_mem (0, 0xF7, 7, $_[1]) }
-sub div16s_mem { $_[0]->_append_op16_reg_mem (0, 0xF7, 7, $_[1]) }
-sub div8s_mem  { $_[0]->_append_op8_opreg_mem(0, 0xF6, 7, $_[1]) }
+sub idiv64_reg { $_[0]->_append_op64_reg_reg (0xF7, 7, $_[1]) }
+sub idiv32_reg { $_[0]->_append_op32_reg_reg (0xF7, 7, $_[1]) }
+sub idiv16_reg { $_[0]->_append_op16_reg_reg (0xF7, 7, $_[1]) }
+sub idiv8_reg  { $_[0]->_append_op8_opreg_reg(0xF6, 7, $_[1]) }
+
+sub idiv64_mem { $_[0]->_append_op64_reg_mem (8, 0xF7, 7, $_[1]) }
+sub idiv32_mem { $_[0]->_append_op32_reg_mem (0, 0xF7, 7, $_[1]) }
+sub idiv16_mem { $_[0]->_append_op16_reg_mem (0, 0xF7, 7, $_[1]) }
+sub idiv8_mem  { $_[0]->_append_op8_opreg_mem(0, 0xF6, 7, $_[1]) }
 
 =head2 MUL
 
 =over
 
-=item mul64s_dxax_reg
+=item mul64_dxax_reg
 
-=item mul32s_dxax_reg
+=item mul32_dxax_reg
 
-=item mul16s_dxax_reg
+=item mul16_dxax_reg
 
-=item mul8s_ax_reg
-
-=item mul64s_reg
-
-=item mul32s_reg
-
-=item mul16s_reg
-
-=item mul64s_mem
-
-=item mul32s_mem
-
-=item mul16s_mem
-
-=item mul64s_const_reg
-
-=item mul32s_const_reg
-
-=item mul16s_const_reg
-
-=item mul64s_const_mem
-
-=item mul32s_const_mem
-
-=item mul16s_const_mem
+=item mul8_ax_reg
 
 =back
 
 =cut
 
-sub mul64s_dxax_reg { shift->_append_op64_reg_reg(8, 0xF7, 5, @_) }
-sub mul32s_dxax_reg { shift->_append_op32_reg_reg(0, 0xF7, 5, @_) }
-sub mul16s_dxax_reg { shift->_append_op16_reg_reg(0, 0xF7, 5, @_) }
-sub mul8s_ax_reg    { shift->_append_op8_reg_reg (0, 0xF6, 5, @_) }
+#=item mul64_reg
+#
+#=item mul32_reg
+#
+#=item mul16_reg
+#
+#=item mul64_mem
+#
+#=item mul32_mem
+#
+#=item mul16_mem
+#
+#=item mul64_reg_imm
+#
+#=item mul32_reg_imm
+#
+#=item mul16_reg_imm
+#
+#=item mul64_mem_imm
+#
+#=item mul32_mem_imm
+#
+#=item mul16_mem_imm
+
+sub mul64_dxax_reg { shift->_append_op64_reg_reg(8, 0xF7, 5, @_) }
+sub mul32_dxax_reg { shift->_append_op32_reg_reg(0, 0xF7, 5, @_) }
+sub mul16_dxax_reg { shift->_append_op16_reg_reg(0, 0xF7, 5, @_) }
+sub mul8_ax_reg    { shift->_append_op8_reg_reg (0, 0xF6, 5, @_) }
 
 #sub mul64s_reg { shift->_append_op64_reg_reg(8, 
 
@@ -1660,15 +1690,20 @@ This only implements the 64-bit push instruction.
 
 =over
 
-=item C<push_reg>
+=item C<push($operand, $bits)>
 
-=item C<push_imm>
+=item C<push64_reg>
 
-=item C<push_mem>
+=item C<push64_imm>
+
+=item C<push64_mem>
 
 =back
 
 =cut
+
+# wait til late in compilation to avoid name clash hassle
+END { eval q|sub push { splice(@_,1,0,'push' ); &_autodetect_signature_1op; }| };
 
 sub push_reg {
 	my ($self, $reg)= @_;
@@ -1693,6 +1728,8 @@ sub push_mem { shift->_append_op64_reg_mem(0, 0xFF, 6, shift) }
 
 =over
 
+=item C<pop($operand, $bits)>
+
 =item C<pop_reg>
 
 =item C<pop_mem>
@@ -1700,6 +1737,9 @@ sub push_mem { shift->_append_op64_reg_mem(0, 0xFF, 6, shift) }
 =back
 
 =cut
+
+# wait til late in compilation to avoid name clash hassle
+END { eval q|sub pop { splice(@_,1,0,'pop' ); &_autodetect_signature_1op; }| };
 
 sub pop_reg {
 	my ($self, $reg)= @_;
