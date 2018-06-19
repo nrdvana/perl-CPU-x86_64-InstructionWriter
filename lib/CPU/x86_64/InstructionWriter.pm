@@ -285,6 +285,65 @@ sub bytes {
 	return $self->_buf;
 }
 
+=head1 DATA DECLARATION
+
+This class assembles instructions, but sometimes you want to mix in data, and label the data.
+These methods append data, optionally aligned.
+
+=head2 data
+
+Append a string of literal bytes to the instruction stream.
+
+=head2 data_i8, data_i16, data_i32, data_i64
+
+Pack an integer into some number of bits and append it.
+
+=cut
+
+sub data     { $_[0]{_buf} .= $_[1] }
+sub data_i8  { $_[0]{_buf} .= chr($_[1]) }
+sub data_i16 { $_[0]{_buf} .= pack('v', $_[1]) }
+sub data_i32 { $_[0]{_buf} .= pack('V', $_[1]) }
+sub data_i64 { $_[0]{_buf} .= pack('<Q', $_[1]) }
+
+=head2 data_f32, data_f64
+
+Pack a floating point number into the given bit-length (float or double) and append it.
+
+=cut
+
+sub data_f32 { $_[0]{_buf} .= pack('f', $_[1]) }
+sub data_f64 { $_[0]{_buf} .= pack('d', $_[1]) }
+
+=head2 align, align16, align32, align64, align128
+
+Append zero or more bytes so that the next instruction is aligned in memory.
+By default, the fill-byte will be a NO-OP (0x90).  You can override it with your choice.
+
+=cut
+
+sub align { # ( self, bytes, fill_byte)
+	my ($self, $bytes, $fill)= @_;
+	($bytes & ($bytes-1))
+		and croak "Bytes must be a power of 2";
+	$self->_align(~($bytes-1), $fill);
+}
+sub _align {
+	my ($self, $mask, $fill)= @_;
+	$fill //= "\x90";
+	length($fill) == 1 or croak "Fill byte must be 1 byte long";
+	$self->_mark_unresolved(
+		0,
+		encode => sub {
+			#warn "start=$_[1]{start}, mask=$mask, ~mask=${\~$mask} ".((($_[1]{start} + ~$mask) & $mask) - $_[1]{start})."\n";
+			$fill x ((($_[1]{start} + ~$mask) & $mask) - $_[1]{start})
+		}
+	);
+}
+sub align2 { splice @_, 1, 0, ~1; &_align; }
+sub align4 { splice @_, 1, 0, ~3; &_align; }
+sub align8 { splice @_, 1, 0, ~7; &_align; }
+
 =head1 INSTRUCTIONS
 
 The following methods append an instruction to the buffer, and return C<$self> so you can continue
