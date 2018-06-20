@@ -193,6 +193,7 @@ exception.
 =cut
 
 has start_address         => ( is => 'rw', default => sub { unknown64() } );
+has debug                 => ( is => 'rw' );
 
 has _buf                  => ( is => 'rw', default => sub { '' } );
 has _unresolved           => ( is => 'rw', default => sub { [] } );
@@ -2518,6 +2519,8 @@ sub _append_possible_unknown {
 	my ($self, $encoder, $encoder_args, $unknown_pos, $estimated_length)= @_;
 	my $u= $encoder_args->[$unknown_pos];
 	if (ref $u && ref $u ne 'SCALAR') {
+		ref($u)->can('value')
+			or croak "Expected object with '->value' method";
 		$self->_mark_unresolved(
 			$estimated_length,
 			encode => sub {
@@ -2568,6 +2571,14 @@ sub _mark_unresolved {
 		$self->{_buf} .= "\0" x $location;
 	}
 	
+	if ($self->{debug}) {
+		my ($i, @caller);
+		# Walk up stack until the entry-point method
+		while (@caller= caller(++$i)) {
+			last if $caller[0] ne __PACKAGE__;
+		}
+		push @_, caller => \@caller;
+	}
 	#print "Unresolved at $start ($location)\n";
 	push @{ $self->_unresolved }, { start => $start, len => $location, @_ };
 }
@@ -2611,15 +2622,24 @@ sub _resolve {
 				or next;
 			
 			# Get new encoding, then replace those bytes in the instruction string
-			my $enc= $self->$fn($p);
-			substr($self->{_buf}, $p->{start}, $p->{len})= $enc;
-			
-			# If the length changed, update $ofs and current ->len
-			if (length($enc) != $p->{len}) {
-				#print "New size is ".length($enc)."\n";
-				$changed_len= 1;
-				$ofs += (length($enc) - $p->{len});
-				$p->{len}= length($enc);
+			eval {
+				my $enc= $self->$fn($p);
+				substr($self->{_buf}, $p->{start}, $p->{len})= $enc;
+				
+				# If the length changed, update $ofs and current ->len
+				if (length($enc) != $p->{len}) {
+					#print "New size is ".length($enc)."\n";
+					$changed_len= 1;
+					$ofs += (length($enc) - $p->{len});
+					$p->{len}= length($enc);
+				}
+			};
+			if ($@) {
+				if ($p->{caller}) {
+					croak "Failed to encode instruction $p->{caller}[3] from $p->{caller}[1] line $p->{caller}[2]:\n   $@";
+				} else {
+					croak "Failed to encode instruction (enable diagnostics with ->debug(1) ): $@";
+				}
 			}
 		}
 	}
