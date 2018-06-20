@@ -6,6 +6,7 @@ use Carp;
 use Scalar::Util 'looks_like_number';
 use Exporter 'import';
 use CPU::x86_64::InstructionWriter::Unknown;
+use CPU::x86_64::InstructionWriter::Label;
 
 # ABSTRACT: Assemble x86-64 instructions using a pure-perl API
 
@@ -225,7 +226,7 @@ sub get_label {
 	my ($self, $name)= @_;
 	my $labels= $self->labels;
 	unless (defined $name && defined $labels->{$name}) {
-		my $label= {};
+		my $label= bless {}, __PACKAGE__.'::Label';
 		$name= "$label" unless defined $name;
 		$label->{name}= $name;
 		$labels->{$name}= $label;
@@ -2515,14 +2516,15 @@ sub _append_jmp_cx {
 
 sub _append_possible_unknown {
 	my ($self, $encoder, $encoder_args, $unknown_pos, $estimated_length)= @_;
-	if (ref $encoder_args->[$unknown_pos]) {
+	my $u= $encoder_args->[$unknown_pos];
+	if (ref $u && ref $u ne 'SCALAR') {
 		$self->_mark_unresolved(
 			$estimated_length,
 			encode => sub {
 				my $self= shift;
 				my @args= @$encoder_args;
-				$args[$unknown_pos]= $args[$unknown_pos]->value
-					// croak "Value $encoder_args->[$unknown_pos] is still unresolved";
+				$args[$unknown_pos]= $u->value
+					// croak "Value '$u->{name}' is still unresolved";
 				$self->$encoder(@args);
 			},
 		);
