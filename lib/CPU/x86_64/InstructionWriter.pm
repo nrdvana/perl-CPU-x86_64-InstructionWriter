@@ -986,6 +986,39 @@ sub addcarry32_mem_imm { $_[0]->_append_mathop32_const_to_mem(0x83, 0x81, 2, $_[
 sub addcarry16_mem_imm { $_[0]->_append_mathop16_const_to_mem(0x83, 0x81, 2, $_[2], $_[1]) }
 sub addcarry8_mem_imm  { $_[0]->_append_mathop8_const_to_mem (0x80, 2, $_[2], $_[1]) }
 
+=head2 sub
+
+=item C<add##_reg_imm($reg, $const)>
+
+=cut
+
+sub sub { splice(@_,1,0,'sub'); &_autodetect_signature_dst_src }
+
+sub sub64_reg_reg { $_[0]->_append_op64_reg_reg(0x29, $_[2], $_[1]) }
+sub sub32_reg_reg { $_[0]->_append_op32_reg_reg(0x29, $_[2], $_[1]) }
+sub sub16_reg_reg { $_[0]->_append_op16_reg_reg(0x29, $_[2], $_[1]) }
+sub sub8_reg_reg  { $_[0]->_append_op8_reg_reg (0x28, $_[2], $_[1]) }
+
+sub sub64_reg_mem { $_[0]->_append_op64_reg_mem(8, 0x2B, $_[1], $_[2]); }
+sub sub32_reg_mem { $_[0]->_append_op32_reg_mem(0, 0x2B, $_[1], $_[2]); }
+sub sub16_reg_mem { $_[0]->_append_op16_reg_mem(0, 0x2B, $_[1], $_[2]); }
+sub sub8_reg_mem  { $_[0]->_append_op8_reg_mem (0, 0x2A, $_[1], $_[2]); }
+
+sub sub64_mem_reg { $_[0]->_append_op64_reg_mem(8, 0x29, $_[2], $_[1]); }
+sub sub32_mem_reg { $_[0]->_append_op32_reg_mem(0, 0x29, $_[2], $_[1]); }
+sub sub16_mem_reg { $_[0]->_append_op16_reg_mem(0, 0x29, $_[2], $_[1]); }
+sub sub8_mem_reg  { $_[0]->_append_op8_reg_mem (0, 0x28, $_[2], $_[1]); }
+
+sub sub64_reg_imm { shift->_append_mathop64_const(0x2D, 0x83, 0x81, 5, @_) }
+sub sub32_reg_imm { shift->_append_mathop32_const(0x2D, 0x83, 0x81, 5, @_) }
+sub sub16_reg_imm { shift->_append_mathop16_const(0x2D, 0x83, 0x81, 5, @_) }
+sub sub8_reg_imm  { shift->_append_mathop8_const (0x2C, 0x80, 5, @_) }
+
+sub sub64_mem_imm { $_[0]->_append_mathop64_const_to_mem(0x83, 0x81, 5, $_[2], $_[1]) }
+sub sub32_mem_imm { $_[0]->_append_mathop32_const_to_mem(0x83, 0x81, 5, $_[2], $_[1]) }
+sub sub16_mem_imm { $_[0]->_append_mathop16_const_to_mem(0x83, 0x81, 5, $_[2], $_[1]) }
+sub sub8_mem_imm  { $_[0]->_append_mathop8_const_to_mem (0x80, 5, $_[2], $_[1]) }
+
 =head2 AND
 
 =over
@@ -2443,7 +2476,7 @@ sub _append_jmp_cx {
 sub _append_possible_unknown {
 	my ($self, $encoder, $encoder_args, $unknown_pos, $estimated_length)= @_;
 	if (ref $encoder_args->[$unknown_pos]) {
-		$self->mark_unresolved(
+		$self->_mark_unresolved(
 			$estimated_length,
 			encode => sub {
 				my $self= shift;
