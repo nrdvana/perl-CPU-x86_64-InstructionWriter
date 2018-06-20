@@ -1,12 +1,17 @@
 package CPU::x86_64::InstructionWriter::Unknown;
 
-use Moo 2;
+use strict;
+use warnings;
 use Carp;
-use Scalar::Util 'refaddr';
 
 # ABSTRACT: Placeholder for a constant that will be assembled
 
-has name => ( is => 'rw' );
+sub new {
+	my ($class, %fields)= @_;
+	bless \%fields, $class;
+}
+
+sub name { $_[0]{name}= $_[1] if @_ > 1; $_[0]{name} }
 
 sub bits {
 	my $self= shift;
@@ -17,6 +22,6 @@ sub bits {
 	$self->{bits}= $val;
 }
 
-has value => ( is => 'rw' );
+sub value { $_[0]{value}= $_[1] if @_ > 1; $_[0]{value} }
 
 1;
