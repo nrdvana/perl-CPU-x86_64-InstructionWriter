@@ -227,7 +227,7 @@ sub get_label {
 	my ($self, $name)= @_;
 	my $labels= $self->labels;
 	unless (defined $name && defined $labels->{$name}) {
-		my $label= bless {}, __PACKAGE__.'::Label';
+		my $label= bless { relative_to => $self->start_address }, __PACKAGE__.'::Label';
 		$name= "$label" unless defined $name;
 		$label->{name}= $name;
 		$labels->{$name}= $label;
