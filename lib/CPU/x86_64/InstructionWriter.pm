@@ -358,13 +358,15 @@ sub _autodetect_signature_dst_src {
 	$bits ||= $register_bits{$dst} || $register_bits{$src}
 		or croak "Can't determine bit-width of ".uc($opname)." instruction. "
 		        ."Use ->$opname(\$dst, \$src, \$bits) to clarify, when there is no register";
-	my $dst_type= $register_bits{$dst}? 'reg'
+	my $dst_type= looks_like_number($dst)? 'imm'
 	            : ref $dst eq 'ARRAY'? 'mem'
-	            : looks_like_number($dst)? 'imm'
+	            : ref $dst && ref($dst)->can('value')? 'imm'
+	            : $register_bits{$dst}? 'reg'
 	            : croak "Can't identify type of destination operand $dst";
-	my $src_type= $register_bits{$src}? 'reg'
+	my $src_type= looks_like_number($src)? 'imm'
 	            : ref $src eq 'ARRAY'? 'mem'
-	            : looks_like_number($src)? 'imm'
+	            : ref $src && ref($src)->can('value')? 'imm'
+	            : $register_bits{$src}? 'reg'
 	            : croak "Can't identify type of source operand $src";
 	my $method= "$opname${bits}_${dst_type}_${src_type}";
 	($self->can($method) || croak "No ".uc($opname)." variant $method available")
