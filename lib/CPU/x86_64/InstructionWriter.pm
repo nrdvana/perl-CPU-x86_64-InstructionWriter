@@ -1803,33 +1803,128 @@ sub syscall {
 
 =head1 STRING INSTRUCTIONS
 
-=head2 cmpNN_str
+  ->xor('RAX','RAX')      # Compare to 0
+  ->mov('RCX', 42)        # Count
+  ->mov('RDI', \@memaddr) # String
+  ->std                   # Iterate to increasing address
+  ->repne->scas8;         # Iterate until [RDI] == "\0" or 42 bytes
+
+=head2 rep
+
+Repeat RCX times (used with L</ins>, L</lods>, L</movs>, L</outs>, L</stos>)
+
+=head2 repe, repz
+
+Repeat RCX times or until zero-flag becomes zero.  (used with L</cmps>, L</scas>)
+
+=head2 repne, repnz
+
+Repeat RCX times or until zero-flag becomes one. (used with L</cmps>, L</scas>)
+
+=cut
+
+sub rep { $_[0]{_buf} .= "\xF3"; $_[0] }
+*repe= *repz= *rep;
+
+sub repnz { $_[0]{_buf} .= "\xF2"; $_[0] }
+*repne= *repnz;
+
+=head2 std
+
+Set direction flag (iterate to higher address)
+
+=head2 cld
+
+Clear direction flag (iterate to lower address)
+
+=cut
+
+sub std { $_[0]{_buf} .= "\xFD"; $_[0] }
+sub cld { $_[0]{_buf} .= "\xFC"; $_[0] }
+
+=head2 movsNN
 
 =over
 
-=item strcmp64, cmpsq
+=item movs64, movsq
 
-=item strcmp32, cmpsd
+=item movs32, movsd
 
-=item strcmp16, cmpsw
+=item movs16, movsw
 
-=item strcmp8, cmpsb
+=item movs8, movsb
 
 =back
 
 =cut
 
-sub strcmp64 { $_[0]{_buf}.= "\x48\xA7"; $_[0] }
-*cmpsq= *strcmp64;
+sub movs64 { $_[0]{_buf} .= "\x48\xA5"; $_[0] }
+*movsq= *movs64;
 
-sub strcmp32 { $_[0]{_buf}.= "\xA7"; $_[0] }
-*cmpsd= *strcmp32;
+sub movs32 { $_[0]{_buf} .= "\xA5"; $_[0] }
+*movsd= *movs32;
 
-sub strcmp16 { $_[0]{_buf}.= "\x66\xA7"; $_[0] }
-*cmpsw= *strcmp16;
+sub movs16 { $_[0]{_buf} .= "\x66\xA5"; $_[0] }
+*movsw= *movs16;
 
-sub strcmp8  { $_[0]{_buf}.= "\xA6"; $_[0] }
-*cmpsb= *strcmp8;
+sub movs8  { $_[0]{_buf} .= "\xA4"; $_[0] }
+*movsb= *movs8;
+
+=head2 cmpsNN
+
+=over
+
+=item cmps64, cmpsq
+
+=item cmps32, cmpsd
+
+=item cmps16, cmpsw
+
+=item cmps8, cmpsb
+
+=back
+
+=cut
+
+sub cmps64 { $_[0]{_buf}.= "\x48\xA7"; $_[0] }
+*cmpsq= *cmps64;
+
+sub cmps32 { $_[0]{_buf}.= "\xA7"; $_[0] }
+*cmpsd= *cmps32;
+
+sub cmps16 { $_[0]{_buf}.= "\x66\xA7"; $_[0] }
+*cmpsw= *cmps16;
+
+sub cmps8  { $_[0]{_buf}.= "\xA6"; $_[0] }
+*cmpsb= *cmps8;
+
+=head2 scasNN
+
+=over
+
+=item scas64, scasq
+
+=item scas32, scasd
+
+=item scas16, scasw
+
+=item scas8, scasb
+
+=back
+
+=cut
+
+sub scas64 { $_[0]{_buf} .= "\x48\xAF"; $_[0] }
+*scasq= *scas64;
+
+sub scas32 { $_[0]{_buf} .= "\xAF"; $_[0] }
+*scasd= *scas32;
+
+sub scas16 { $_[0]{_buf} .= "\x66\xAF"; $_[0] }
+*scasw= *scas16;
+
+sub scas8 { $_[0]{_buf} .= "\xAE"; $_[0] }
+*scasb= *scas8;
 
 =head1 SYNCHRONIZATION INSTRUCTIONS
 
