@@ -1,10 +1,31 @@
 package CPU::x86_64::InstructionWriter::Unknown;
-
+# VERSION
 use strict;
 use warnings;
 use Carp;
 
 # ABSTRACT: Placeholder for a constant that will be assembled
+
+=head1 DESCRIPTION
+
+This object represents a calculated constant that is not initially known.
+
+=head1 ATTRIBUTES
+
+=head2 name
+
+Human-readable name for the unknown value
+
+=head2 bits
+
+The number of bits in the value (sometimes known before the value itself).
+May be C<undef>
+
+=head2 value
+
+The numeric value.  Starts as C<undef> and gets assigned a value during assembly.
+
+=cut
 
 sub new {
 	my ($class, %fields)= @_;

@@ -1,5 +1,5 @@
 package CPU::x86_64::InstructionWriter;
-
+# VERSION
 use v5.10;
 use Moo 2;
 use Carp;
@@ -35,7 +35,7 @@ use CPU::x86_64::InstructionWriter::Label;
 The purpose of this module is to relatively efficiently assemble instructions for the x86-64
 without generating and re-parsing assembly language, or shelling out to an external tool.
 All instructions are assumed to be for the 64-bit mode of the processor.  Functionality for
-real mode or segmented 16-bit mode will be handled by the yet-to-be-written x86 module.
+real mode or segmented 16-bit mode could be added by a yet-to-be-written ::x86 module.
 
 This module consists of a bunch of chainable methods which build a string of machine code as
 you call them.  It supports lazy-resolved jump labels, and lazy-bound constants which can be
@@ -46,19 +46,20 @@ B<Note:> This module currently requires a perl with 64-bit integers and C<pack('
 =head1 NOTATIONS
 
 The method names of this class loosely match the NASM notation, but with the addition of the
-number of data bits following the opcode name and list of arguments.
+number of data bits following the opcode name, and list of arguments.
 
     MOV EAX, [EBX]
     
     $w->mov32_reg_mem('eax', ['ebx']);
     
-    # or, short form, with use ::InstructionWriter ':registers'
+    # or, short form
+	use CPU::X86_64::InstructionWriter ':registers';
     $w->mov(eax,[ebx]);
 
-This helps it run faster than if the method needed to parse out the arguments, and remove
-ambiguity since your code generator probably knows what operation it wants.  Also it takes the
-place if the "qword" attributes that NASM sometimes needs.  However, if you want you can use
-the generic method for an op.
+Using a specific method like 'mov32_reg_mem' runs faster than the generic method 'mov', and
+removes ambiguity since your code generator probably already knows what operation it wants.
+Also it removes the need for the "qword" attributes that NASM sometimes needs.  However, if you
+want you can use the generic method for an op.
 
 There are often entirely new names given to an opcode (for the somewhat obscure ones) but the
 official Intel/AMD name is provided as an alias.
@@ -263,10 +264,10 @@ sub mark {
 		unless ref $label;
 	
 	# A label can only exist once
-	defined $label->{start} and croak "Can't mark label '$label->{name}' twice";
+	defined $label->{offset} and croak "Can't mark label '$label->{name}' twice";
 	
 	# Set the label's current location
-	$label->{start}= length($self->{_buf});
+	$label->{offset}= length($self->{_buf});
 	$label->{len}= 0;
 	
 	# Add it to the list of unresolved things, so its position can be updated
@@ -338,7 +339,7 @@ sub _align {
 		0,
 		encode => sub {
 			#warn "start=$_[1]{start}, mask=$mask, ~mask=${\~$mask} ".((($_[1]{start} + ~$mask) & $mask) - $_[1]{start})."\n";
-			$fill x ((($_[1]{start} + ~$mask) & $mask) - $_[1]{start})
+			$fill x ((($_[1]{offset} + ~$mask) & $mask) - $_[1]{offset})
 		}
 	);
 }
@@ -454,8 +455,8 @@ sub call_label {
 		5, # estimated length
 		encode => sub {
 			my ($self, $params)= @_;
-			defined $label->{start} or croak "Label $label is not marked";
-			my $ofs= $label->{start} - ($params->{start}+$params->{len});
+			defined $label->{offset} or croak "Label $label is not marked";
+			my $ofs= $label->{offset} - ($params->{offset}+$params->{len});
 			($ofs >> 31) == ($ofs >> 32) or croak "Offset must be within 31 bits";
 			return pack('CV', 0xE8, $ofs);
 		}
@@ -530,8 +531,8 @@ sub jmp {
 		2, # estimated length
 		encode => sub {
 			my ($self, $params)= @_;
-			defined $label->{start} or croak "Label $label is not marked";
-			my $ofs= $label->{start} - ($params->{start}+$params->{len});
+			defined $label->{offset} or croak "Label $label is not marked";
+			my $ofs= $label->{offset} - ($params->{offset}+$params->{len});
 			my $short= (($ofs>>7) == ($ofs>>8));
 			return $short?
 				pack('Cc', 0xEB, $ofs)
@@ -719,8 +720,6 @@ register.
 
 sub mov { splice(@_,1,0,'mov'); &_autodetect_signature_dst_src }
 
-=over
-
 =item C<mov64_reg_reg($dest_reg, $src_reg)>
 
 Copy second register to first register.  Copies full 64-bit value.
@@ -904,10 +903,6 @@ sub lea32_reg_mem { $_[0]->_append_op32_reg_mem(0, 0x8D, $_[1], $_[2]) }
 sub lea64_reg_reg { $_[0]->_append_op64_reg_reg(   0x8D, $_[1], $_[2]) }
 sub lea64_reg_mem { $_[0]->_append_op64_reg_mem(8, 0x8D, $_[1], $_[2]) }
 
-=over
-
-=item 
-
 =head2 ADD, ADC
 
 The add## variants are the plain ADD instruction, for each bit width.
@@ -1007,7 +1002,11 @@ sub addcarry8_mem_imm  { $_[0]->_append_mathop8_const_to_mem (0x80, 2, $_[2], $_
 
 =head2 sub
 
+=over
+
 =item C<add##_reg_imm($reg, $const)>
+
+=back
 
 =cut
 
@@ -1974,7 +1973,7 @@ sub cache_flush {
 
 =head1 ENCODING x86_64 INSTRUCTIONS
 
-The AMD64 Architecture Programmer's Manual is a somewhat tedious read, so here's my notes:
+The AMD64 Architecture Programmer's Manual is a somewhat tedious read, so here are my notes:
 
 Typical 2-arg 64-bit instruction:
 	REX ( AddrSize ) Opcode ModRM ( ScaleIndexBase ( Disp ) ) ( Immed )
@@ -2006,15 +2005,18 @@ Typical 2-arg 64-bit instruction:
 		* unless base_register = _101b and ModRM.mod = 00 then no register is used.
 			(i.e. [R{BP,13} + R?? * 2] must be written as [R{BP,13} + R?? * 2 + 0]
 
-=head1 UTILITY METHODS FOR ENCODING INSTRUCTIONS
-
-=head2 _encode_op_reg_reg
-
-Encode standard instruction with REX prefix which refers only to registers.
-This skips all the memory addressing logic since it is only operating on registers,
-and always produces known-length encodings.
+The methods that perform the encoding are not public, but are documented in the source for
+anyone who wants to extend this module to handle additional instructions.
 
 =cut
+
+#=head2 _encode_op_reg_reg
+#
+#Encode standard instruction with REX prefix which refers only to registers.
+#This skips all the memory addressing logic since it is only operating on registers,
+#and always produces known-length encodings.
+#
+#=cut
 
 sub _encode_op_reg_reg {
 	my ($self, $rex, $opcode, $reg1, $reg2, $immed_pack, $immed)= @_;
@@ -2109,12 +2111,12 @@ sub _append_op8_opreg_reg {
 	$self;
 }
 
-=head2 _append_op##_reg_mem
-
-Encode standard ##-bit instruction with REX prefix which addresses memory for one of its operands.
-The encoded length might not be resolved until later if an unknown displacement value was given.
-
-=cut
+#=head2 _append_op##_reg_mem
+#
+#Encode standard ##-bit instruction with REX prefix which addresses memory for one of its operands.
+#The encoded length might not be resolved until later if an unknown displacement value was given.
+#
+#=cut
 
 sub _append_op64_reg_mem {
 	my ($self, $rex, $opcode, $reg, $mem)= @_;
@@ -2186,12 +2188,12 @@ sub _append_op8_opreg_mem {
 	$self->_append_possible_unknown('_encode_op_reg_mem', [$rex, $opcode, $opreg, $base_reg, $disp, $index_reg, $scale], 4, 7);
 }
 
-=head2 _append_op##_const_to_mem
-
-Encode standard ##-bit instruction with REX prefix which operates on a constant and then
-writes to a memory location.
-
-=cut
+#=head2 _append_op##_const_to_mem
+#
+#Encode standard ##-bit instruction with REX prefix which operates on a constant and then
+#writes to a memory location.
+#
+#=cut
 
 sub _append_op8_const_to_mem {
 	my ($self, $opcode, $opreg, $value, $mem)= @_;
@@ -2294,27 +2296,27 @@ sub _encode_op_reg_mem {
 		: pack('C', $opcode) . $tail;
 }
 
-=head2 _append_mathopNN_const
-
-This is so bizarre I don't even know where to start.  Most "math-like" instructions have an opcode
-for an immediate the size of the register (except 64-bit which only gets a 32-bit immediate), an
-opcode for an 8-bit immediate, and another opcode specifically for the AX register which is a byte
-shorter than the normal, which is the only redeeming reason to bother using it.
-Also, there is a constant stored in the 3 bits of the unused register in the ModRM byte which acts
-as an extension of the opcode.
-
-These 4 methods are the generic implementation for encoding this mess.
-Each implementation also handles the possibility that the immediate value is an unknown variable
-resolved while the instructions are assembled.
-
-=over
-
-=item C<_append_mathop64_const($opcodeAX32, $opcode8, $opcode32, $opcode_reg, $reg, $immed)>
-
-This one is annoying because it only gets a sign-extended 32-bit value, so you actually only get
-31 bits of an immediate value for a 64-bit instruction.
-
-=cut
+#=head2 _append_mathopNN_const
+#
+#This is so bizarre I don't even know where to start.  Most "math-like" instructions have an opcode
+#for an immediate the size of the register (except 64-bit which only gets a 32-bit immediate), an
+#opcode for an 8-bit immediate, and another opcode specifically for the AX register which is a byte
+#shorter than the normal, which is the only redeeming reason to bother using it.
+#Also, there is a constant stored in the 3 bits of the unused register in the ModRM byte which acts
+#as an extension of the opcode.
+#
+#These 4 methods are the generic implementation for encoding this mess.
+#Each implementation also handles the possibility that the immediate value is an unknown variable
+#resolved while the instructions are assembled.
+#
+#=over
+#
+#=item C<_append_mathop64_const($opcodeAX32, $opcode8, $opcode32, $opcode_reg, $reg, $immed)>
+#
+#This one is annoying because it only gets a sign-extended 32-bit value, so you actually only get
+#31 bits of an immediate value for a 64-bit instruction.
+#
+#=cut
 
 sub _append_mathop64_const {
 	my ($self, @args)= @_; # $opcodeAX32, $opcode8, $opcode32, $opcode_reg, $reg, $immed
@@ -2336,9 +2338,9 @@ sub _encode_mathop64_imm {
 	: croak "$value is wider than 32-bit";
 }
 
-=item C<_append_mathop32_const($opcodeAX32, $opcode8, $opcode32, $opcode_reg, $reg, $immed)>
-
-=cut
+#=item C<_append_mathop32_const($opcodeAX32, $opcode8, $opcode32, $opcode_reg, $reg, $immed)>
+#
+#=cut
 
 sub _append_mathop32_const {
 	my ($self, @args)= @_; # $opcodeAX32, $opcode8, $opcode32, $opcode_reg, $reg, $immed
@@ -2362,9 +2364,9 @@ sub _encode_mathop32_imm {
 		: croak "$value is wider than 32-bit";
 }
 
-=item C<_append_mathop16_const($opcodeAX16, $opcode8, $opcode16, $opcode_reg, $reg, $immed)>
-
-=cut
+#=item C<_append_mathop16_const($opcodeAX16, $opcode8, $opcode16, $opcode_reg, $reg, $immed)>
+#
+#=cut
 
 sub _append_mathop16_const {
 	my ($self, @args)= @_; # $opcodeAX16, $opcode8, $opcode16, $opcode_reg, $reg, $immed
@@ -2388,17 +2390,17 @@ sub _encode_mathop16_imm {
 		: croak "$value is wider than 16-bit";
 }
 
-=item C<_append_mathop8_const($opcodeAX8, $opcode8, $opcode_reg, $reg, $immed)>
-
-On the upside, this one only has one bit width, so the length of the instruction is known even if
-the immediate value isn't.
-
-However, we also have to handle the case where "dil", "sil", etc need a REX prefix but AH, BH, etc
-can't have one.
-
-=back
-
-=cut
+#=item C<_append_mathop8_const($opcodeAX8, $opcode8, $opcode_reg, $reg, $immed)>
+#
+#On the upside, this one only has one bit width, so the length of the instruction is known even if
+#the immediate value isn't.
+#
+#However, we also have to handle the case where "dil", "sil", etc need a REX prefix but AH, BH, etc
+#can't have one.
+#
+#=back
+#
+#=cut
 
 sub _append_mathop8_const {
 	my ($self, $opcodeAX8, $opcode8, $opcode_reg, $reg, $immed)= @_;
@@ -2495,16 +2497,16 @@ sub _encode_mathop8_mem_immed {
 	$self->_encode_op_reg_mem(0, $opcode8, $opcode_reg, $base_reg, $disp, $index_reg, $scale).pack('C',$value&0xFF);
 }
 
-=head2 C<_append_shiftop_reg_imm( $bitwidth, $opcode_1, $opcode_imm, $opreg, $reg, $immed )>
-
-Shift instructions often have a special case for shifting by 1.  This utility method
-selects that opcode if the immediate value is 1.
-
-It also allows the immediate to be an expression, though I doubt that will ever happen...
-Immediate values are always a single byte, and the processor masks them to 0..63
-so the upper bits are irrelevant.
-
-=cut
+#=head2 C<_append_shiftop_reg_imm( $bitwidth, $opcode_1, $opcode_imm, $opreg, $reg, $immed )>
+#
+#Shift instructions often have a special case for shifting by 1.  This utility method
+#selects that opcode if the immediate value is 1.
+#
+#It also allows the immediate to be an expression, though I doubt that will ever happen...
+#Immediate values are always a single byte, and the processor masks them to 0..63
+#so the upper bits are irrelevant.
+#
+#=cut
 
 sub _append_shiftop_reg_imm {
 	my ($self, $bits, $opcode_sh1, $opcode_imm, $opreg, $reg, $immed)= @_;
@@ -2527,11 +2529,11 @@ sub _append_shiftop_reg_imm {
 	$self;
 }
 
-=head2 _append_shiftop_mem_imm
-
-Same as above, for memory locations
-
-=cut
+#=head2 _append_shiftop_mem_imm
+#
+#Same as above, for memory locations
+#
+#=cut
 
 sub _append_shiftop_mem_imm {
 	my ($self, $bits, $opcode_sh1, $opcode_imm, $opreg, $mem, $immed)= @_;
@@ -2554,15 +2556,15 @@ sub _append_shiftop_mem_imm {
 	$self;
 }
 
-=head2 C<_append_jmp_cond($cond_code, $label)>
-
-Appends a conditional jump instruction, which is either the short 2-byte form for 8-bit offsets,
-or 6 bytes for jumps of 32-bit offsets.  The implementation optimistically assumes the 2-byte
-length until L<resolve> is called, when the actual length will be determined.
-
-Returns $self, for chaining.
-
-=cut
+#=head2 C<_append_jmp_cond($cond_code, $label)>
+#
+#Appends a conditional jump instruction, which is either the short 2-byte form for 8-bit offsets,
+#or 6 bytes for jumps of 32-bit offsets.  The implementation optimistically assumes the 2-byte
+#length until L<resolve> is called, when the actual length will be determined.
+#
+#Returns $self, for chaining.
+#
+#=cut
 
 sub _append_jmp_cond {
 	$_[2]= $_[0]->get_label unless defined $_[2];
@@ -2575,8 +2577,8 @@ sub _append_jmp_cond {
 		2, # estimated length
 		encode => sub {
 			my ($self, $params)= @_;
-			defined $label->{start} or croak "Label $label is not marked";
-			my $ofs= $label->{start} - ($params->{start}+$params->{len});
+			defined $label->{offset} or croak "Label $label is not marked";
+			my $ofs= $label->{offset} - ($params->{offset}+$params->{len});
 			my $short= (($ofs>>7) == ($ofs>>8));
 			return $short?
 				pack('Cc', 0x70 + $cond, $ofs)
@@ -2586,12 +2588,12 @@ sub _append_jmp_cond {
 	$self;
 }
 
-=head2 C<_append_jmp_cx($opcode, $label)>
-
-Appends one of the special CX-related jumps (like L</loop>).  These can only have an 8-bit offset
-and are fixed-length.
-
-=cut
+#=head2 C<_append_jmp_cx($opcode, $label)>
+#
+#Appends one of the special CX-related jumps (like L</loop>).  These can only have an 8-bit offset
+#and are fixed-length.
+#
+#=cut
 
 sub _append_jmp_cx {
 	my ($self, $op, $label)= @_;
@@ -2602,8 +2604,8 @@ sub _append_jmp_cx {
 		2, # estimated length
 		encode => sub {
 			my ($self, $params)= @_;
-			defined $label->{start} or croak "Label $label is not marked";
-			my $ofs= $label->{start} - ($params->{start}+$params->{len});
+			defined $label->{offset} or croak "Label $label is not marked";
+			my $ofs= $label->{offset} - ($params->{offset}+$params->{len});
 			(($ofs>>7) == ($ofs>>8)) or croak "Label too far, can only short-jump";
 			return pack('Cc', $op, $ofs);
 		}
@@ -2634,34 +2636,34 @@ sub _append_possible_unknown {
 	$self;
 }
 
-=head2 C<_mark_unresolved($location, encode => sub {...}, %other)>
-
-Creates a new unresolved marker in the instruction stream, indicating things which can't be known
-until the entire instruction stream is written. (such as jump instructions).
-
-The parameters 'start' and 'len' will be filled in automatically based on the $location parameter.
-If C<$location> is negative, it indicates start is that many bytes backward from the end of the
-buffer.  If C<$location> is positive, it means the unresolved symbol hasn't been written yet and
-the 'start' will be the current end of the buffer and 'len' is the value of $location.
-
-The other usual (but not required) parameter is 'encode'.  This references a method callback which
-will return the encoded instruction (or die, if there is still not enough information to do so).
-
-All C<%other> parameters are passed to the callback as a HASHREF.
-
-=cut
+#=head2 C<_mark_unresolved($location, encode => sub {...}, %other)>
+#
+#Creates a new unresolved marker in the instruction stream, indicating things which can't be known
+#until the entire instruction stream is written. (such as jump instructions).
+#
+#The parameters 'offset' and 'len' will be filled in automatically based on the $location parameter.
+#If C<$location> is negative, it indicates offset is that many bytes backward from the end of the
+#buffer.  If C<$location> is positive, it means the unresolved symbol hasn't been written yet and
+#the 'offset' will be the current end of the buffer and 'len' is the value of $location.
+#
+#The other usual (but not required) parameter is 'encode'.  This references a method callback which
+#will return the encoded instruction (or die, if there is still not enough information to do so).
+#
+#All C<%other> parameters are passed to the callback as a HASHREF.
+#
+#=cut
 
 sub _mark_unresolved {
 	my ($self, $location)= (shift, shift);
-	my $start= length($self->{_buf});
+	my $offset= length($self->{_buf});
 	
-	# If location is negative, move the 'start' back that many bytes.
+	# If location is negative, move the 'offset' back that many bytes.
 	# The length is the abs of location.
 	if ($location < 0) {
 		$location= -$location;
-		$start -= $location;
+		$offset -= $location;
 	}
-	# If the location is positive, start is the end of the string.
+	# If the location is positive, offset is the end of the string.
 	# Add padding bytes for the length of the instruction.
 	else {
 		$self->{_buf} .= "\0" x $location;
@@ -2675,8 +2677,8 @@ sub _mark_unresolved {
 		}
 		push @_, caller => \@caller;
 	}
-	#print "Unresolved at $start ($location)\n";
-	push @{ $self->_unresolved }, { start => $start, len => $location, @_ };
+	#print "Unresolved at $offset ($location)\n";
+	push @{ $self->_unresolved }, { offset => $offset, len => $location, @_ };
 }
 
 sub _repack {
@@ -2690,14 +2692,14 @@ sub _repack {
 	return pack($pack, $v & ~(~0 << $bits));
 }
 
-=head2 C<_resovle>
-
-This is the algorithm that resolves the unresolved instructions.  It takes an iterative approach
-that is relatively efficient as long as the predicted lengths of the unresolved instructions are
-correct.  If many instructions guess the wrong length then this could get slow for very long
-instruction strings.
-
-=cut
+#=head2 C<_resovle>
+#
+#This is the algorithm that resolves the unresolved instructions.  It takes an iterative approach
+#that is relatively efficient as long as the predicted lengths of the unresolved instructions are
+#correct.  If many instructions guess the wrong length then this could get slow for very long
+#instruction strings.
+#
+#=cut
 
 sub _resolve {
 	my $self= shift;
@@ -2711,7 +2713,7 @@ sub _resolve {
 		my $ofs= 0;
 		for my $p (@{ $self->_unresolved }) {
 			#print "Shifting $p by $ofs\n" if $ofs;
-			$p->{start} += $ofs if $ofs;
+			$p->{offset} += $ofs if $ofs;
 			
 			# Ignore things without an 'encode' callback (like labels)
 			my $fn= $p->{encode}
@@ -2720,7 +2722,7 @@ sub _resolve {
 			# Get new encoding, then replace those bytes in the instruction string
 			eval {
 				my $enc= $self->$fn($p);
-				substr($self->{_buf}, $p->{start}, $p->{len})= $enc;
+				substr($self->{_buf}, $p->{offset}, $p->{len})= $enc;
 				
 				# If the length changed, update $ofs and current ->len
 				if (length($enc) != $p->{len}) {
