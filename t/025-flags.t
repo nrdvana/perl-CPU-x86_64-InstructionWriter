@@ -16,7 +16,7 @@ my %alias= (
 	cld => [ flag_direction => 0 ],
 	std => [ flag_direction => 1 ],
 );
-for my $op (keys %alias) {
+for my $op (sort keys %alias) {
 	my ($method, $arg)= @{ $alias{$op} };
 	push @asm, $op."\n".$op;
 	push @out, new_writer->$op->$method($arg)->bytes;
