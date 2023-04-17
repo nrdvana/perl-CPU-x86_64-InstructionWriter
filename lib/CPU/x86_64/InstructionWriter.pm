@@ -1968,10 +1968,10 @@ sub sfence {
 	$_[0];
 }
 
-sub cache_flush {
-	...;
-}
-*clflush= *cache_flush;
+#sub cache_flush {
+#	...;
+#}
+#*clflush= *cache_flush;
 
 =head1 ENCODING x86_64 INSTRUCTIONS
 
