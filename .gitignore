@@ -1,2 +1,2 @@
-t/nasm_cache
-CPU-x86_64-InstructionWriter-*
+/CPU-x86_64-InstructionWriter-*
+/.build
