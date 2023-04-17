@@ -14,11 +14,11 @@ sub forward {
 	for my $op (qw( jmp je jne ja jae jb jbe jl jle jg jge js jns jo jno jpe jpo jrcxz loop loopz loopnz )) {
 		++$label;
 		my $asm= "$op label$label\nnop\nlabel$label: nop\n";
-		my $writer= new_writer->$op("label$label")->nop->mark("label$label")->nop;
+		my $writer= new_writer->$op("label$label")->nop->label("label$label")->nop;
 		# Test far jumps for all but the CX conditional jumps which can only be 8-bit
 		unless ($op =~ /cx|loop/) {
 			$asm .= "$op far_label$label\n" . ("nop\n" x 128) . "far_label$label: nop\n";
-			$writer->$op("far_label$label")->nop(128)->mark("far_label$label")->nop;
+			$writer->$op("far_label$label")->nop(128)->label("far_label$label")->nop;
 		}
 		push @asm, $asm;
 		push @out, $writer->bytes;
@@ -34,7 +34,7 @@ sub backward {
 	for my $op (qw( jmp je jne ja jae jb jbe jl jle jg jge js jns jo jno jpe jpo jrcxz loop loopz loopnz )) {
 		++$label;
 		my $asm= "label$label: nop\n$op label$label\n";
-		my $writer= new_writer->mark("label$label")->nop->$op("label$label");
+		my $writer= new_writer->label("label$label")->nop->$op("label$label");
 		# Test far jumps for all but the CX conditional jumps which can only be 8-bit
 		unless ($op =~ /cx|loop/) {
 			$asm .= ("nop\n" x 128) . "$op label$label\n";

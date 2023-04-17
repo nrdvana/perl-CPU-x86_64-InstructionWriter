@@ -21,16 +21,18 @@ use CPU::x86_64::InstructionWriter::Label;
 
   # if (x == 1) { ++x } else { ++y }
   my $machine_code= CPU::x86_64::InstructionWriter->new
-    ->cmp( 'RAX', 0 )
+    ->cmp( 'RAX', 1 )
     ->jne('else')        # jump to not-yet-defined label named 'else'
     ->inc( 'RAX' )
     ->jmp('end')         # jump to another not-yet-defined label
-    ->mark('else')       # resolve previous jump to this address
+    ->label('else')      # resolve previous jump to this address
     ->inc( 'RCX' )
-    ->mark('end')        # resolve second jump to this address
+    ->label('end')       # resolve second jump to this address
     ->bytes;
 
 =head1 DESCRIPTION
+
+B<This module is an early stage of development and the API is not finalized>.
 
 The purpose of this module is to relatively efficiently assemble instructions for the x86-64
 without generating and re-parsing assembly language, or shelling out to an external tool.
@@ -236,11 +238,11 @@ sub get_label {
 	$labels->{$name};
 }
 
-=head2 mark
+=head2 label
 
-  ->mark($label_ref)     # bind label object to current position
-  ->mark(my $new_label)  # like above, but create anonymous label object and assign to $new_label
-  ->mark($label_name)    # like above, but create/lookup label object by name
+  ->label($label_ref)     # bind label object to current position
+  ->label(my $new_label)  # like above, but create anonymous label object and assign to $new_label
+  ->label($label_name)    # like above, but create/lookup label object by name
 
 Bind a named label to the current position in the instruction buffer.  You can also pass a label
 reference from L</get_label>, or an undef variable which will be assigned a label.
@@ -250,7 +252,7 @@ unknown, and shift automatically as the instructions are resolved.
 
 =cut
 
-sub mark {
+sub label {
 	@_ == 2 or croak "Invalid arguments to 'mark'";
 	
 	# If they gave an undefined label, we auto-populate it, which modifies

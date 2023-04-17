@@ -13,11 +13,11 @@ sub call {
 
 	# Forward call
 	push @asm, "call label0\nnop\nlabel0: nop\n";
-	push @out, new_writer->call_label("label0")->nop->mark("label0")->nop->bytes;
+	push @out, new_writer->call_label("label0")->nop->label("label0")->nop->bytes;
 
 	# Backward call
 	push @asm, "label1: nop\nnop\nnop\ncall label1\n";
-	push @out, new_writer->mark("label1")->nop(3)->call_label("label1")->bytes;
+	push @out, new_writer->label("label1")->nop(3)->call_label("label1")->bytes;
 
 	# Call to numeric offset
 	# I can't get micro-examples to assemble correctly with nasm, so no reference to go by...
