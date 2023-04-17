@@ -5,7 +5,6 @@ use FindBin;
 use lib "$FindBin::Bin/lib";
 use TestASM qw( new_writer iterate_mem_addr_combos asm_ok @r64 @r32 @r16 @r8 @immed32 @immed16 @immed8 );
 use Test::More;
-use Log::Any::Adapter 'TAP';
 
 subtest sub_reg_reg => \&sub_reg_reg;
 sub sub_reg_reg {

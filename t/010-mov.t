@@ -6,7 +6,6 @@ use FindBin;
 use lib "$FindBin::Bin/lib";
 use TestASM qw( new_writer iterate_mem_addr_combos asm_ok @r64 @r32 @r16 @r8 @r8h @immed64 @immed32 @immed16 @immed8 unknown );
 use Test::More;
-use Log::Any::Adapter 'TAP';
 
 sub test_mov_reg {
 	# Generate every combination of to/from registers
