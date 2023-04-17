@@ -1671,8 +1671,6 @@ Each flag modifier takes an argument of 0 (clear), 1 (set), or -1 (invert).
 
 =item flag_carry($state), clc, cmc, stc
 
-=item flag_direction($state), cld, std
-
 =back
 
 =cut
@@ -1682,11 +1680,6 @@ sub flag_carry { $_[0]{_buf} .= $_carry_flag_op[$_[1] + 1]; $_[0] }
 sub clc { $_[0]{_buf} .= "\xF8"; $_[0] }
 sub cmc { $_[0]{_buf} .= "\xF5"; $_[0] }
 sub stc { $_[0]{_buf} .= "\xF9"; $_[0] }
-
-my @_direction_flag_op= ( "\xFC", "\xFD" );
-sub flag_direction { $_[0]{_buf} .= $_direction_flag_op[$_[1]]; $_[0] }
-sub cld { $_[0]{_buf} .= "\xFC"; $_[0] }
-sub std { $_[0]{_buf} .= "\xFD"; $_[0] }
 
 =head2 PUSH
 
@@ -1829,18 +1822,24 @@ sub rep { $_[0]{_buf} .= "\xF3"; $_[0] }
 sub repnz { $_[0]{_buf} .= "\xF2"; $_[0] }
 *repne= *repnz;
 
+=head2 flag_direction($bool_set)
+
+Set (1) or clear (0) the direction flag.
+
 =head2 std
 
-Set direction flag (iterate to higher address)
+Set the direction flag (iterate to higher address)
 
 =head2 cld
 
-Clear direction flag (iterate to lower address)
+Clear the direction flag (iterate to lower address)
 
 =cut
 
-sub std { $_[0]{_buf} .= "\xFD"; $_[0] }
+my @_direction_flag_op= ( "\xFC", "\xFD" );
+sub flag_direction { $_[0]{_buf} .= $_direction_flag_op[0+!!$_[1]]; $_[0] }
 sub cld { $_[0]{_buf} .= "\xFC"; $_[0] }
+sub std { $_[0]{_buf} .= "\xFD"; $_[0] }
 
 =head2 movsNN
 
