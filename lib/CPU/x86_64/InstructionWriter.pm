@@ -6,6 +6,7 @@ use Carp;
 use Scalar::Util 'looks_like_number';
 use Exporter 'import';
 use CPU::x86_64::InstructionWriter::Unknown;
+use CPU::x86_64::InstructionWriter::RelativeAddr;
 use CPU::x86_64::InstructionWriter::Label;
 
 # ABSTRACT: Assemble x86-64 instructions using a pure-perl API
@@ -272,6 +273,25 @@ sub mark {
 	# Add it to the list of unresolved things, so its position can be updated
 	push @{ $self->_unresolved }, $label;
 	return $self;
+}
+
+=head2 relative
+
+  ->relative($address)
+  ->relative($address, $descriptive_name)
+
+Return a placeholder which is the difference between the instruction where it is used,
+and the destination address.  This is useful for RIP-relative addressing.
+
+=cut
+
+sub relative {
+	my ($self, $address, $name)= @_;
+	bless {
+		target => $address,
+		name => $name || "rel $address",
+		# source will be set upon being used in an instruction
+	}, __PACKAGE__.'::RelativeAddr';
 }
 
 =head2 bytes
@@ -760,9 +780,10 @@ sub mov8_reg_mem  { $_[0]->_append_mov_reg_mem($_[1], $_[2],  8, 0x8A, 0xA0); }
 sub _append_mov_reg_mem {
 	my ($self, $reg, $mem, $bits, $opcode, $ax_opcode)= @_;
 	# AX is allowed to load/store 64-bit addresses, if the address is a single constant
-	if (!defined $mem->[0] && $mem->[1] && !defined $mem->[2] && ($mem->[1] > 0x7FFFFFFF || ref $mem->[1])) {
+	if (!defined $mem->[0] && $mem->[1] && !defined $mem->[2] && (ref $mem->[1] || $mem->[1] > 0x7FFFFFFF)) {
 		my $disp= $mem->[1];
-		if (lc($reg) eq ($bits == 64? 'rax' : $bits == 32? 'eax' : $bits == 16? 'ax' : 'al')) {
+		my $rel_addr= ref $disp && (ref $disp eq 'SCALAR' || $disp->isa('CPU::x86_64::InstructionWriter::RelativeAddr'));
+		if (!$rel_addr && lc($reg) eq ($bits == 64? 'rax' : $bits == 32? 'eax' : $bits == 16? 'ax' : 'al')) {
 			my $opstr= chr($ax_opcode);
 			$opstr= "\x48".$opstr if $bits == 64;
 			$opstr= "\x66".$opstr if $bits == 16;
@@ -2173,9 +2194,16 @@ sub _encode_op_reg_mem {
 			# Null index register is encoded as RSP
 			$tail= pack('C', $mod_rm | (($reg & 7) << 3) | ($base_reg & 7)) . $suffix;
 		}
-	} else {
+	} elsif (ref $disp) {
+		# If displacement is relative (scalar ref) then encode as special RIP instruction
+		defined $index_reg and croak "Cannot use index register with RIP-relative addressing";
+		$disp= $$disp;
+		(($disp >> 31) == ($disp >> 32))
+			or croak "address displacement out of range: $disp";
+		$tail= pack('CV', (($reg & 7) << 3) | 5, $disp);
+	}
+	else {
 		# Null base register is encoded as RBP + 32bit displacement
-		
 		(($disp >> 31) == ($disp >> 32))
 			or croak "address displacement out of range: $disp";
 		
@@ -2531,11 +2559,28 @@ sub _append_possible_unknown {
 				$self->$encoder(@args);
 			},
 		);
+		# If the unknown is a relative displacement, anchor it to the position after
+		# the instruction (because that's how RIP-relative addressing is calculated)
+		$self->_anchor_relative_addr($u)
+			if $u->isa('CPU::x86_64::InstructionWriter::RelativeAddr');
 	}
 	else {
 		$self->{_buf} .= $self->$encoder(@$encoder_args);
 	}
 	$self;
+}
+
+sub _anchor_relative_addr {
+	my ($self, $u)= @_;
+	if (!defined $u->{source}) {
+		$u->{source}= $self->get_label;
+	} elsif (!ref $u->{source} && !looks_like_number($u->{source})) {
+		$u->{source}= $self->get_label($u->{source});
+	}
+	if (!ref $u->{target} && !looks_like_number($u->{target})) {
+		$u->{target}= $self->get_label($u->{target});
+	}
+	$self->mark($u->source);
 }
 
 =head2 C<_mark_unresolved($location, encode => sub {...}, %other)>

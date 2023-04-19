@@ -41,7 +41,10 @@ our @immed8=  $do_all? (0, map { (1 << $_, -1 << $_) } 0..6)
 	: (0, 1, -1, 0x7F, -0x80);
 
 sub new_writer {
-	CPU::x86_64::InstructionWriter->new
+	CPU::x86_64::InstructionWriter->new->mark('start');
+}
+sub rel_addr {
+	bless { target => shift, name => 'rel:start' }, 'CPU::x86_64::InstructionWriter::RelativeAddr';
 }
 
 sub iterate_mem_addr_combos {
@@ -53,12 +56,18 @@ sub iterate_mem_addr_combos {
 					for my $scale ($rbase? (2, 4, 8) : (4, 8)) {
 						next unless $rbase or $ofs or $ridx;
 						push @$asm, $asm_fn->("["
-							. (!defined $rbase? '' : $rbase)
+							. (!defined $rbase? '' : $rbase eq 'rip'? 'rel ' : $rbase)
 							. (!defined $ofs? '' : $ofs >= 0? "+$ofs" : $ofs)
 							. (!defined $ridx? '' : (defined $rbase || defined $ofs? "+":'')."$ridx*$scale")
 							."]");
 						push @$out, $out_fn->($rbase, $ofs, $ridx, $ridx? $scale : undef);
 					}
+				}
+				if (!$rbase) {
+					push @$asm, $asm_fn->("[ rel start "
+						. (!defined $ofs? '' : $ofs >= 0? "+$ofs" : $ofs)
+						."]");
+					push @$out, $out_fn->($rbase, rel_addr('start'));
 				}
 			}
 		}
@@ -73,6 +82,12 @@ sub iterate_mem_addr_combos {
 						. (!defined $ridx? '' : (defined $rbase || defined $ofs? "+":'')."$ridx*4")
 						."]");
 					push @$out, $out_fn->($rbase, $ofs, $ridx, $ridx? 4 : undef);
+				}
+				if (!$rbase) {
+					push @$asm, $asm_fn->("[ rel start "
+						. (!defined $ofs? '' : $ofs >= 0? "+$ofs" : $ofs)
+						."]");
+					push @$out, $out_fn->($rbase, rel_addr('start'));
 				}
 			}
 		}
@@ -152,7 +167,7 @@ sub reference_assemble {
 		# So use clumsy temp files.
 		my $infile= File::Temp->new(TEMPLATE => 'asm-XXXXXX', SUFFIX => '.asm')
 			or die "tmpfile: $!";
-		$infile->print("[bits 64]\n".$asm_source);
+		$infile->print("[bits 64]\nstart: \n".$asm_source);
 		$infile->close;
 		mkdir nasm_cache_file(undef);
 		unless (system(which_nasm, '-o', $cache_file, $infile) == 0) {
