@@ -302,11 +302,11 @@ Pack an integer into some number of bits and append it.
 
 =cut
 
-sub data     { $_[0]{_buf} .= $_[1] }
-sub data_i8  { $_[0]{_buf} .= chr($_[1]) }
-sub data_i16 { $_[0]{_buf} .= pack('v', $_[1]) }
-sub data_i32 { $_[0]{_buf} .= pack('V', $_[1]) }
-sub data_i64 { $_[0]{_buf} .= pack('Q<', $_[1]) }
+sub data     { $_[0]{_buf} .= $_[1];             $_[0] }
+sub data_i8  { $_[0]{_buf} .= chr($_[1]);        $_[0] }
+sub data_i16 { $_[0]{_buf} .= pack('v', $_[1]);  $_[0] }
+sub data_i32 { $_[0]{_buf} .= pack('V', $_[1]);  $_[0] }
+sub data_i64 { $_[0]{_buf} .= pack('Q<', $_[1]); $_[0] }
 
 =head2 data_f32, data_f64
 
@@ -314,8 +314,8 @@ Pack a floating point number into the given bit-length (float or double) and app
 
 =cut
 
-sub data_f32 { $_[0]{_buf} .= pack('f', $_[1]) }
-sub data_f64 { $_[0]{_buf} .= pack('d', $_[1]) }
+sub data_f32 { $_[0]{_buf} .= pack('f', $_[1]); $_[0] }
+sub data_f64 { $_[0]{_buf} .= pack('d', $_[1]); $_[0] }
 
 =head2 align, align16, align32, align64, align128
 
