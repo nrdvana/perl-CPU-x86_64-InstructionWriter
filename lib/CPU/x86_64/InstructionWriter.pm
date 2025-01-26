@@ -1005,7 +1005,7 @@ sub addcarry8_mem_imm  { $_[0]->_append_mathop8_const_to_mem (0x80, 2, $_[2], $_
 
 =over
 
-=item C<add##_reg_imm($reg, $const)>
+=item C<sub##_reg_imm($reg, $const)>
 
 =back
 
