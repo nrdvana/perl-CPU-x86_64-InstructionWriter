@@ -61,6 +61,25 @@ sub test_mov_const {
 	done_testing;
 }
 
+sub test_mov_rip_rel {
+	my (@asm, @out);
+	my $label_n= 1;
+
+	for (['mov64_reg_mem', \@r64], ['mov32_reg_mem', \@r32], ['mov16_reg_mem', \@r16], ['mov8_reg_mem', \@r8]) {
+		my ($method, $regs)= @$_;
+		my $label= 'some_data_'.$label_n++;
+		my $asm= '';
+		my $writer= new_writer;
+		for (@$regs) {
+			$asm .= "mov $_, [ rel $label ]\n";
+			$writer->$method($_, [ RIP => \$label ]);
+		}
+		push @asm, $asm . "$label: dq 42\n";
+		push @out, $writer->label($label)->data_i64(42)->bytes
+	}
+	asm_ok( \@out, \@asm, 'movXX_reg_[rel label]' );
+}
+
 sub test_mov_mem {
 	my (@asm, @out);
 	for my $reg (@r64) {
@@ -74,7 +93,8 @@ sub test_mov_mem {
 		);
 	}
 	asm_ok( \@out, \@asm, 'mov64_mem_*' );
-	
+
+	@asm= (); @out= ();
 	for my $reg (@r32) {
 		iterate_mem_addr_combos(
 			\@asm, sub { "mov $_[0], $reg" },
@@ -87,6 +107,7 @@ sub test_mov_mem {
 	}
 	asm_ok( \@out, \@asm, 'mov32_mem_*' );
 
+	@asm= (); @out= ();
 	for my $reg (@r16) {
 		iterate_mem_addr_combos(
 			\@asm, sub { "mov $_[0], $reg" },
@@ -99,6 +120,7 @@ sub test_mov_mem {
 	}
 	asm_ok( \@out, \@asm, 'mov16_mem_*' );
 
+	@asm= (); @out= ();
 	for my $reg (@r8) {
 		iterate_mem_addr_combos(
 			\@asm, sub { "mov $_[0], $reg" },
@@ -247,6 +269,7 @@ sub test_lea {
 subtest mov_reg => \&test_mov_reg;
 subtest mov_const => \&test_mov_const;
 subtest mov_mem => \&test_mov_mem;
+subtest mov_rip_rel => \&test_mov_rip_rel;
 subtest mov_mem_imm => \&test_mov_mem_imm;
 subtest mov_ax_addr => \&test_mov_ax_addr;
 subtest mov => \&test_mov;
