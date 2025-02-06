@@ -336,7 +336,48 @@ sub align8 { splice @_, 1, 0, ~7; &_align; }
 
 =head2 data
 
+  $writer->data("\x01");
+  my %set= (
+    "\x01\x02\x03\x04" => $writer->new_label,
+    "\x03\x04"         => undef,
+    ...
+  );
+  $writer->data(\%set);
+
 Append a string of literal bytes to the instruction stream.
+
+If the value is a hashref, each key of the hashref will be added, and each value of the hashref
+will be a label that is anchored to the start of those bytes.  If your hashref keys are unicode
+strings, use L<data_str> instead.  This also looks for opportunities to overlap strings if one
+is a subset of another.
+
+=cut
+
+sub data {
+	if (ref $_[1] eq 'HASH') {
+		my ($self, $set)= @_;
+		# process longest strings first.  Check each string to see if it exists in the buffer already.
+		my $buf= '';
+		my $pos= length $self->{_buf};
+		for my $str (sort { length $b <=> length $a } keys %$set) {
+			my $label= $set->{$str} //= $self->get_label;
+			defined $label->{offset} and croak "Label for '$str' is already anchored";
+			# Scan buf for existing string
+			my $ofs= index $buf, $str;
+			if ($ofs < 0) {
+				$ofs= length $buf;
+				$buf .= $str;
+			}
+			$label->{offset}= $pos + $ofs;
+			$label->{len}= length $str;
+			push @{ $self->_unresolved }, $label;
+		}
+		$self->{_buf} .= $buf;
+	} else {
+		$_[0]{_buf} .= $_[1];
+	}
+	$_[0]
+}
 
 =head2 data_i8, data_i16, data_i32, data_i64
 
@@ -344,7 +385,6 @@ Pack an integer into some number of bits and append it.
 
 =cut
 
-sub data     { $_[0]{_buf} .= $_[1];             $_[0] }
 sub data_i8  { $_[0]{_buf} .= chr($_[1]);        $_[0] }
 sub data_i16 { $_[0]{_buf} .= pack('v', $_[1]);  $_[0] }
 sub data_i32 { $_[0]{_buf} .= pack('V', $_[1]);  $_[0] }
@@ -361,83 +401,33 @@ sub data_f64 { $_[0]{_buf} .= pack('d', $_[1]); $_[0] }
 
 =head2 data_str
 
-  $writer->data_str($text, $encoding//'utf-8')
+  $writer->data_str($text, encoding => 'UTF-8', nul_terminate => 1);
+  $writer->data_str(\%string_set, encoding => 'UTF-8', nul_terminate => 1);
 
 Append a string, and deal with encoding.  This differs from ->data in that it checks for
 nonascii characters in the string, and encodes them in the specified encoding, defaulting to
-UTF-8.
+UTF-8.  It also includes a trailing NUL character unless you override that option.
 
 =cut
 
 sub data_str {
-	$_[0]{_buf} .= Encode::encode($_[2] // 'UTF-8', $_[1], Encode::FB_CROAK());
-	$_[0]
-}
-
-=head2 data_table
-
-  my $str= {
-    "\x01\x02\x03\x04" => $writer->new_label,
-    "\x03\x04"         => undef,
-    ...
-  };
-  $writer->data_table($str);
-
-Given a hashref of byte strings to un-anchored labels (or undef awaiting a label) find as many
-overlapping strings as possible and append them while anchoring/creating all the labels.
-
-All hash keys must be bytes.  If you have wide characters, see L<data_strtable>.
-
-=cut
-
-sub data_table {
-	my ($self, $table)= @_;
-	# process longest strings first.  Check each string to see if it exists in the buffer already.
-	my $buf= '';
-	my $pos= length $self->{_buf};
-	for my $str (sort { length $b <=> length $a } keys %$table) {
-		my $label= $table->{$str} //= $self->get_label;
-		defined $label->{offset} and croak "Label for '$str' is already anchored";
-		# Scan buf for existing string
-		my $ofs= index $buf, $str;
-		if ($ofs < 0) {
-			$ofs= length $buf;
-			$buf .= $str;
-		}
-		$label->{offset}= $pos + $ofs;
-		$label->{len}= length $str;
-		push @{ $self->_unresolved }, $label;
-	}
-	$self->{_buf} .= $buf;
-	$self
-}
-
-=head2 data_strtable
-
-  $writer->data_strtable(\%strings,
-    encoding => 'UTF-8',
-    nul_terminate => 1,
-  );
-
-Like data_table, but encode all of the keys first.  The default encoding is UTF-8, and it also
-assumes that you need the NUL byte on the end of each string.  You can override the encoding,
-or disable terminating NULs.
-
-=cut
-
-sub data_strtable {
-	my ($self, $str_table, %options)= @_;
+	my ($self, $str, %options)= @_;
 	my $encoding= $options{encoding} // 'UTF-8';
 	my $nul_terminate= $options{nul_terminate} // 1;
-	my %byte_table;
-	for my $sk (keys %$str_table) {
-		my $sk2= $sk;
-		my $bk= Encode::encode($encoding, $sk2, Encode::FB_CROAK());
-		$bk .= "\0" if $nul_terminate;
-		#die "$sk, $sk2" if $sk ne $sk2;
-		$byte_table{$bk}= ($str_table->{$sk} //= $self->get_label);
+	if (ref $str eq 'HASH') {
+		my %byte_strs;
+		for my $sk (keys %$str) {
+			my $bk= $sk; # append \0 before encoding, in case it needs encoded as UTF-16 or -32
+			$bk =~ s/(?<!\0)\z/\0/ if $nul_terminate;
+			$bk= Encode::encode($encoding, $bk, Encode::FB_CROAK);
+			$byte_strs{$bk}= ($str->{$sk} //= $self->get_label);
+		}
+		return $self->data(\%byte_strs);
+	} else {
+		$str =~ s/(?<!\0)\z/\0/ if $nul_terminate;
+		$self->{_buf} .= Encode::encode($encoding, $str, Encode::FB_CROAK);
 	}
-	return $self->data_table(\%byte_table);
+	$self
 }
 
 =head1 INSTRUCTIONS

@@ -15,6 +15,7 @@ our @EXPORT_OK= qw( int64 pack reference_assemble iterate_mem_addr_combos
 	hex_diff have_nasm asm_ok new_writer
 	@r64 @r32 @r16 @r8 @r8h @immed64 @immed32 @immed16 @immed8
 	unknown unknown8 unknown16 unknown32 unknown64 unknown7 unknown15 unknown31 unknown63
+	hex_dump hex_diff
 );
 
 my $do_all= $ENV{TEST_EXHAUSTIVE}

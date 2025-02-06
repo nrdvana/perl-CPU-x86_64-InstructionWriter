@@ -10,7 +10,7 @@ my $program= CPU::x86_64::InstructionWriter->new
    # exit(0)
    ->mov(RAX, 60)->mov(RDI, 0)->syscall
 	# ought to be in a data segment, but this is convenient
-   ->data_strtable(\%str)
+   ->data_str(\%str)
 	->bytes;
 
 my $elf= ELF::Writer::Linux_x86_64->new(type => 'executable');
