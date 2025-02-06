@@ -5,6 +5,7 @@ use Moo 2;
 use Carp;
 use Scalar::Util 'looks_like_number';
 use Exporter 'import';
+use Encode;
 use CPU::x86_64::InstructionWriter::Unknown;
 use CPU::x86_64::InstructionWriter::Label;
 use CPU::x86_64::InstructionWriter::RipRelative;
@@ -14,27 +15,36 @@ use if !eval{ pack('Q<',1) }, 'CPU::x86_64::InstructionWriter::_int32', qw/pack/
 
 =head1 SYNOPSIS
 
-  # POSIX::exit(42);
-  my $machine_code= CPU::x86_64::InstructionWriter->new
-    ->mov( 'RAX', 60 )
-    ->mov( 'RDI', 42 )
-    ->syscall()
+  use CPU::x86_64::InstructionWriter ':registers';
+  
+  # write(1, "Hello World\n", 12);
+  # exit(0);
+  my %str;
+  my $msg= "Hello World\n";
+  my $program= CPU::x86_64::InstructionWriter->new
+    ->mov(RAX, 1)           # Linux 'write' syscall
+    ->mov(RDI, 1)           # stdout
+    ->lea(RSI, [RIP => \$str{$msg}])
+    ->mov(RDX, length $msg)
+    ->syscall
+    ->mov(RAX, 60)          # Linux 'exit' syscall
+    ->mov(RDI, 0)           # success
+    ->syscall
+    ->data_strtable(\%str)  # ought to be in a data segment
     ->bytes;
-
+  
   # if (x == 1) { ++x } else { ++y }
   my $machine_code= CPU::x86_64::InstructionWriter->new
-    ->cmp( 'RAX', 1 )
-    ->jne('else')        # jump to not-yet-defined label named 'else'
-    ->inc( 'RAX' )
-    ->jmp('end')         # jump to another not-yet-defined label
-    ->label('else')      # resolve previous jump to this address
-    ->inc( 'RCX' )
-    ->label('end')       # resolve second jump to this address
+    ->cmp(RAX, 1)
+    ->jne('else')           # jump to unknown label named 'else'
+    ->inc(RAX)
+    ->jmp('end')            # jump to another not-yet-defined label
+    ->label('else')         # resolve previous jump to this address
+    ->inc(RCX)
+    ->label('end')          # resolve second jump to this address
     ->bytes;
 
 =head1 DESCRIPTION
-
-B<This module is an early stage of development and the API is not finalized>.
 
 The purpose of this module is to relatively efficiently assemble instructions for the x86-64
 without generating and re-parsing assembly language, or shelling out to an external tool.
@@ -42,8 +52,9 @@ All instructions are assumed to be for the 64-bit mode of the processor.  Functi
 real mode or segmented 16-bit mode could be added by a yet-to-be-written ::x86 module.
 
 This module consists of a bunch of chainable methods which build a string of machine code as
-you call them.  It supports lazy-resolved jump labels, and lazy-bound constants which can be
-assigned a value after the instructions have been assembled.
+you call them.  It supports lazy-resolved jump labels, lazy-resolved RIP-relative addresses,
+and lazy-bound constants which can be assigned a value after the instructions have been
+declared.
 
 B<Note:> This module currently requires a perl with 64-bit integers and C<pack('Q')> support.
 
@@ -57,8 +68,8 @@ number of data bits following the opcode name, and list of arguments.
     $w->mov32_reg_mem('eax', ['ebx']);
     
     # or, short form
-	use CPU::X86_64::InstructionWriter ':registers';
-    $w->mov(eax,[ebx]);
+    use CPU::x86_64::InstructionWriter ':registers';
+    $w->mov(EAX,[EBX]);
 
 Using a specific method like 'mov32_reg_mem' runs faster than the generic method 'mov', and
 removes ambiguity since your code generator probably already knows what operation it wants.
@@ -73,7 +84,7 @@ official Intel/AMD name is provided as an alias.
 
    $w->cmp32_reg_reg('eax','ebx')->jmp_unless_overflow($label);
    # or:
-   $w->cmp(eax,ebx)->jno("mylabel");
+   $w->cmp(EAX,EBX)->jno("mylabel");
 
 =head1 MEMORY LOCATIONS
 
@@ -294,31 +305,6 @@ sub bytes {
 This class assembles instructions, but sometimes you want to mix in data, and label the data.
 These methods append data, optionally aligned.
 
-=head2 data
-
-Append a string of literal bytes to the instruction stream.
-
-=head2 data_i8, data_i16, data_i32, data_i64
-
-Pack an integer into some number of bits and append it.
-
-=cut
-
-sub data     { $_[0]{_buf} .= $_[1];             $_[0] }
-sub data_i8  { $_[0]{_buf} .= chr($_[1]);        $_[0] }
-sub data_i16 { $_[0]{_buf} .= pack('v', $_[1]);  $_[0] }
-sub data_i32 { $_[0]{_buf} .= pack('V', $_[1]);  $_[0] }
-sub data_i64 { $_[0]{_buf} .= pack('Q<', $_[1]); $_[0] }
-
-=head2 data_f32, data_f64
-
-Pack a floating point number into the given bit-length (float or double) and append it.
-
-=cut
-
-sub data_f32 { $_[0]{_buf} .= pack('f', $_[1]); $_[0] }
-sub data_f64 { $_[0]{_buf} .= pack('d', $_[1]); $_[0] }
-
 =head2 align, align16, align32, align64, align128
 
 Append zero or more bytes so that the next instruction is aligned in memory.
@@ -347,6 +333,112 @@ sub _align {
 sub align2 { splice @_, 1, 0, ~1; &_align; }
 sub align4 { splice @_, 1, 0, ~3; &_align; }
 sub align8 { splice @_, 1, 0, ~7; &_align; }
+
+=head2 data
+
+Append a string of literal bytes to the instruction stream.
+
+=head2 data_i8, data_i16, data_i32, data_i64
+
+Pack an integer into some number of bits and append it.
+
+=cut
+
+sub data     { $_[0]{_buf} .= $_[1];             $_[0] }
+sub data_i8  { $_[0]{_buf} .= chr($_[1]);        $_[0] }
+sub data_i16 { $_[0]{_buf} .= pack('v', $_[1]);  $_[0] }
+sub data_i32 { $_[0]{_buf} .= pack('V', $_[1]);  $_[0] }
+sub data_i64 { $_[0]{_buf} .= pack('Q<', $_[1]); $_[0] }
+
+=head2 data_f32, data_f64
+
+Pack a floating point number into the given bit-length (float or double) and append it.
+
+=cut
+
+sub data_f32 { $_[0]{_buf} .= pack('f', $_[1]); $_[0] }
+sub data_f64 { $_[0]{_buf} .= pack('d', $_[1]); $_[0] }
+
+=head2 data_str
+
+  $writer->data_str($text, $encoding//'utf-8')
+
+Append a string, and deal with encoding.  This differs from ->data in that it checks for
+nonascii characters in the string, and encodes them in the specified encoding, defaulting to
+UTF-8.
+
+=cut
+
+sub data_str {
+	$_[0]{_buf} .= Encode::encode($_[2] // 'UTF-8', $_[1], Encode::FB_CROAK());
+	$_[0]
+}
+
+=head2 data_table
+
+  my $str= {
+    "\x01\x02\x03\x04" => $writer->new_label,
+    "\x03\x04"         => undef,
+    ...
+  };
+  $writer->data_table($str);
+
+Given a hashref of byte strings to un-anchored labels (or undef awaiting a label) find as many
+overlapping strings as possible and append them while anchoring/creating all the labels.
+
+All hash keys must be bytes.  If you have wide characters, see L<data_strtable>.
+
+=cut
+
+sub data_table {
+	my ($self, $table)= @_;
+	# process longest strings first.  Check each string to see if it exists in the buffer already.
+	my $buf= '';
+	my $pos= length $self->{_buf};
+	for my $str (sort { length $b <=> length $a } keys %$table) {
+		my $label= $table->{$str} //= $self->get_label;
+		defined $label->{offset} and croak "Label for '$str' is already anchored";
+		# Scan buf for existing string
+		my $ofs= index $buf, $str;
+		if ($ofs < 0) {
+			$ofs= length $buf;
+			$buf .= $str;
+		}
+		$label->{offset}= $pos + $ofs;
+		$label->{len}= length $str;
+		push @{ $self->_unresolved }, $label;
+	}
+	$self->{_buf} .= $buf;
+	$self
+}
+
+=head2 data_strtable
+
+  $writer->data_strtable(\%strings,
+    encoding => 'UTF-8',
+    nul_terminate => 1,
+  );
+
+Like data_table, but encode all of the keys first.  The default encoding is UTF-8, and it also
+assumes that you need the NUL byte on the end of each string.  You can override the encoding,
+or disable terminating NULs.
+
+=cut
+
+sub data_strtable {
+	my ($self, $str_table, %options)= @_;
+	my $encoding= $options{encoding} // 'UTF-8';
+	my $nul_terminate= $options{nul_terminate} // 1;
+	my %byte_table;
+	for my $sk (keys %$str_table) {
+		my $sk2= $sk;
+		my $bk= Encode::encode($encoding, $sk2, Encode::FB_CROAK());
+		$bk .= "\0" if $nul_terminate;
+		#die "$sk, $sk2" if $sk ne $sk2;
+		$byte_table{$bk}= ($str_table->{$sk} //= $self->get_label);
+	}
+	return $self->data_table(\%byte_table);
+}
 
 =head1 INSTRUCTIONS
 
@@ -2130,7 +2222,8 @@ sub _append_op64_reg_mem {
 	if (defined $base_reg) {
 		$base_reg= $regnum64{$base_reg} // croak "$base_reg is not a valid 64-bit register";
 		if ($base_reg == 0x15 && ref $disp) { # RIP-relative
-			$disp= $self->get_label($$disp) if ref $disp eq 'SCALAR';
+			$disp= defined $$disp? $self->get_label($$disp) : ($$disp= $self->get_label)
+				if ref $disp eq 'SCALAR';
 			$rip= $self->get_label;
 			$disp= bless { rip => $rip, label => $disp }, 'CPU::x86_64::InstructionWriter::RipRelative';
 		}
@@ -2659,7 +2752,8 @@ sub _append_possible_unknown {
 	my ($self, $encoder, $encoder_args, $unknown_pos, $estimated_length)= @_;
 	my $u= $encoder_args->[$unknown_pos];
 	if (ref $u && !looks_like_number($u)) {
-		$u= $self->get_label($$u) if ref $u eq 'SCALAR';
+		$u= defined $$u? $self->get_label($$u) : ($$u= $self->get_label)
+			if ref $u eq 'SCALAR';
 		ref($u)->can('value')
 			or croak "Expected object with '->value' method";
 		$self->_mark_unresolved(
