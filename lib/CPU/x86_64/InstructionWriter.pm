@@ -1,7 +1,8 @@
 package CPU::x86_64::InstructionWriter;
 # VERSION
 use v5.10;
-use Moo 2;
+use strict;
+use warnings;
 use Carp;
 use Scalar::Util 'looks_like_number';
 use Exporter 'import';
@@ -193,6 +194,36 @@ our %EXPORT_TAGS= (
 );
 our @EXPORT_OK= ( map { @{$_} } values %EXPORT_TAGS );
 
+=head1 CONSTRUCTOR
+
+=head2 new
+
+Acceps attributes:
+
+=over
+
+=item start_address
+
+=item debug
+
+=back
+
+=cut
+
+sub new {
+	my $class= shift;
+	my %args= @_ == 1 && ref $_[0] eq 'HASH'? %{$_[0]}
+		: !(@_ & 1)? @_
+		: croak "Expected hashref or even-length list of k,v pairs";
+	bless {
+		start_address => ($args{start_address} // unknown64()),
+		debuf => $args{debug},
+		_buf => '',
+		_unresolved => [],
+		labels => {},
+	}, $class;
+}
+
 =head1 ATTRIBUTES
 
 =head2 start_address
@@ -205,11 +236,10 @@ exception.
 
 =cut
 
-has start_address         => ( is => 'rw', default => sub { unknown64() } );
-has debug                 => ( is => 'rw' );
-
-has _buf                  => ( is => 'rw', default => sub { '' } );
-has _unresolved           => ( is => 'rw', default => sub { [] } );
+sub start_address { $_[0]{start_address}= $_[1] if @_ > 1; $_[0]{start_address} }
+sub debug         { $_[0]{debug}=         $_[1] if @_ > 1; $_[0]{debug} }
+sub _buf          { croak "read-only" if @_ > 1; $_[0]{_buf} }
+sub _unresolved   { croak "read-only" if @_ > 1; $_[0]{_unresolved} }
 
 =head2 labels
 
@@ -218,7 +248,7 @@ be unique).   You probably don't need to access this.  See L</get_label> and L</
 
 =cut
 
-has labels                => ( is => 'rw', default => sub {; {} } );
+sub labels        { croak "read-only" if @_ > 1; $_[0]{labels} }
 
 =head1 METHODS
 
