@@ -31,7 +31,7 @@ use if !eval{ pack('Q<',1) }, 'CPU::x86_64::InstructionWriter::_int32', qw/pack/
     ->mov(RAX, 60)          # Linux 'exit' syscall
     ->mov(RDI, 0)           # success
     ->syscall
-    ->data_strtable(\%str)  # ought to be in a data segment
+    ->data_str(\%str)       # ought to be in a data segment
     ->bytes;
   
   # if (x == 1) { ++x } else { ++y }
@@ -216,8 +216,8 @@ sub new {
 		: !(@_ & 1)? @_
 		: croak "Expected hashref or even-length list of k,v pairs";
 	bless {
-		start_address => ($args{start_address} // unknown64()),
-		debuf => $args{debug},
+		start_address => ($args{start_address} // unknown64('start_address')),
+		debug => $args{debug},
 		_buf => '',
 		_unresolved => [],
 		labels => {},
