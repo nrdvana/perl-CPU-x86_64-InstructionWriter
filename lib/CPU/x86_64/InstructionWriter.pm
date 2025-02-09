@@ -124,7 +124,8 @@ my %byte_register_alias= ( map {; "R${_}L" => "R${_}B" } 8..15 );
 my @word_registers= qw( AX BX CX DX SI DI SP BP R8W R9W R10W R11W R12W R13W R14W R15W );
 my @long_registers= qw( EAX EBX ECX EDX ESI EDI ESP EBP R8D R9D R10D R11D R12D R13D R14D R15D );
 my @quad_registers= qw( RAX RBX RCX RDX RSI RDI RSP RBP R8 R9 R10 R11 R12 R13 R14 R15 RIP RFLAGS );
-my @registers= ( @byte_registers, @word_registers, @long_registers, @quad_registers );
+my @sse_registers= ( (map "XMM$_", 0..15), (map "YMM$_", 0..15), (map "ZMM$_", 0..31) );
+my @registers= ( @byte_registers, @word_registers, @long_registers, @quad_registers, @sse_registers );
 {
 	# Create a constant for each register name
 	no strict 'refs';
@@ -134,7 +135,12 @@ my @registers= ( @byte_registers, @word_registers, @long_registers, @quad_regist
 		for keys %byte_register_alias;
 }
 
-# Map 64-bit register names to the numeric register number
+# Map register names to the numeric register number
+
+my %regnum128= (
+	map +("XMM$_" => $_, "xmm$_" => $_), 0..15
+);
+
 my %regnum64= (
 	RAX => 0, RCX => 1, RDX => 2, RBX => 3,
 	rax => 0, rcx => 1, rdx => 2, rbx => 3,
@@ -172,10 +178,11 @@ my %regnum8_high= (
 	ah => 4, ch => 5, dh => 6, bh => 7,
 );
 my %register_bits= (
-	(map { $_ => 64 } keys %regnum64),
-	(map { $_ => 32 } keys %regnum32),
-	(map { $_ => 16 } keys %regnum16),
-	(map { $_ =>  8 } keys %regnum8),
+	(map { $_ => 128 } keys %regnum128),
+	(map { $_ =>  64 } keys %regnum64),
+	(map { $_ =>  32 } keys %regnum32),
+	(map { $_ =>  16 } keys %regnum16),
+	(map { $_ =>   8 } keys %regnum8),
 );
 
 sub unknown   { CPU::x86_64::InstructionWriter::Unknown->new(name => $_[0]); }
@@ -483,6 +490,16 @@ sub _autodetect_signature_dst_src {
 	            : $register_bits{$src}? 'reg'
 	            : croak "Can't identify type of source operand $src";
 	my $method= "$opname${bits}_${dst_type}_${src_type}";
+	($self->can($method) || croak "No ".uc($opname)." variant $method available")
+		->($self, $dst, $src);
+}
+
+sub _autodetect_signature_sse {
+	my ($self, $opname, $dst, $src)= @_;
+	my $dst_bits= $register_bits{$dst};
+	my $src_bits= $register_bits{$src};
+	my $method= $opname . (!$dst_bits? '_mem' : $dst_bits == 128? '_xreg' : '_reg')
+		. (!$src_bits? '_mem' : $src_bits == 128? '_xreg' : '_reg');
 	($self->can($method) || croak "No ".uc($opname)." variant $method available")
 		->($self, $dst, $src);
 }
@@ -2079,10 +2096,39 @@ sub sfence {
 	$_[0];
 }
 
-#sub cache_flush {
-#	...;
-#}
-#*clflush= *cache_flush;
+=head1 SSE/AVX FLOATING POINT INSTRUCTIONS
+
+=head2 movq
+
+=cut
+
+sub movq { $_[0]->_autodetect_signature_sse($_[1], $_[2]) }
+
+sub movq_xreg_xreg {
+	my $xreg1= $regnum128{$_[1]} // croak("$_[1] is not a 128-bit register");
+	my $xreg2= $regnum128{$_[2]} // croak("$_[2] is not a 128-bit register");
+	my $rex= ($xreg1 & 8) >> 1 | ($xreg2 & 8) >> 3;
+	my $modrm= 0xC0 | ($xreg1 & 7) << 3 | ($xreg2 & 7);
+	$_[0]{_buf} .= !$rex? pack('CCCC', 0xF3, 0x0F, 0x7E, $modrm)
+		: pack('CCCCC', 0xF3, 0x40|$rex, 0x0F, 0x7E, $modrm);
+	$_[0]
+}
+# nasm produces MOVD w/ rex.w=1 for MOVQ into a general register...
+sub movq_xreg_reg { $_[0]->_append_op128_xreg_reg(0x0F6E, $_[1], $_[2]) }
+sub movq_reg_xreg { $_[0]->_append_op128_xreg_reg(0x0F7E, $_[2], $_[1]) }
+sub movq_xreg_mem { $_[0]->_append_op128_reg_mem("\xF3", 0, 0x0F7E, $_[1], $_[2]) }
+sub movq_mem_xreg { $_[0]->_append_op128_reg_mem("\x66", 0, 0x0FD6, $_[2], $_[1]) }
+
+sub _append_op128_xreg_reg {
+	my ($self, $opcode, $xreg, $reg)= @_;
+	$xreg= $regnum128{$xreg} // croak("$xreg is not a 128-bit register");
+	$reg= $regnum64{$reg} // croak("$reg is not a 64-bit register");
+	$_[0]{_buf} .= pack('CCCCC', 0x66,
+		0x48 | ($xreg & 8) >> 1 | ($reg & 8) >> 3,
+		$opcode>>8, $opcode&0xFF,
+		0xC0 | ($xreg & 7) << 3 | ($reg & 7));
+	$_[0]
+}
 
 =head1 ENCODING x86_64 INSTRUCTIONS
 
@@ -2230,6 +2276,29 @@ sub _append_op8_opreg_reg {
 #The encoded length might not be resolved until later if an unknown displacement value was given.
 #
 #=cut
+
+sub _append_op128_reg_mem {
+	my ($self, $prefix, $rex, $opcode, $reg, $mem)= @_;
+	my ($base_reg, $disp, $index_reg, $scale)= @$mem;
+	$reg= $regnum128{$reg} // croak "$reg is not a valid 128-bit register";
+	$index_reg= $regnum64{$index_reg} // croak "$index_reg is not a valid 64-bit register"
+		if defined $index_reg;
+	my $rip;
+	if (defined $base_reg) {
+		$base_reg= $regnum64{$base_reg} // croak "$base_reg is not a valid 64-bit register";
+		if ($base_reg == 0x15 && ref $disp) { # RIP-relative
+			$disp= defined $$disp? $self->get_label($$disp) : ($$disp= $self->get_label)
+				if ref $disp eq 'SCALAR';
+			$rip= $self->get_label;
+			$disp= bless { rip => $rip, label => $disp }, 'CPU::x86_64::InstructionWriter::RipRelative';
+		}
+	}
+	$self->{_buf} .= $prefix if defined $prefix;
+	$self->_append_possible_unknown('_encode_op_reg_mem', [$rex, $opcode, $reg, $base_reg, $disp, $index_reg, $scale],
+		($opcode > 0xFF? (5,8):(4,7)));
+	$self->label($rip) if defined $rip;
+	$self;
+}
 
 sub _append_op64_reg_mem {
 	my ($self, $rex, $opcode, $reg, $mem)= @_;
@@ -2395,14 +2464,14 @@ sub _encode_op_reg_mem {
 	my ($self, $rex, $opcode, $reg, $base_reg, $disp, $index_reg, $scale, $immed_pack, $immed)= @_;
 	use integer;
 	$rex |= ($reg & 8) >> 1;
-	
+	$opcode= $opcode <= 0xFF? pack('C', $opcode) : pack('CC', $opcode >> 8, $opcode & 0xFF);
 	my $tail;
 	if (defined $base_reg) {
 		if ($base_reg == 0x15) {
 			defined $disp or croak "RIP-relative address requires displacement";
 			defined $scale || defined $immed and croak "RIP-relative address cannot have scale or immediate-value";
-			return $rex? pack('CCCV', ($rex|0x40), $opcode, (($reg & 7) << 3)|5, $disp)
-				: pack('CCV', $opcode, (($reg & 7) << 3)|5, $disp);
+			return $rex? pack('Ca*CV', ($rex|0x40), $opcode, (($reg & 7) << 3)|5, $disp)
+				: pack('a*CV', $opcode, (($reg & 7) << 3)|5, $disp);
 		}
 		$rex |= ($base_reg & 8) >> 3;
 		
@@ -2416,15 +2485,15 @@ sub _encode_op_reg_mem {
 			my $scale= $SIB_scale{$scale // 1} // croak "invalid index multiplier $scale";
 			$index_reg != 4 or croak "RSP cannot be used as index register";
 			$rex |= ($index_reg & 8) >> 2;
-			$tail= pack('CC', $mod_rm | (($reg & 7) << 3) | 4, $scale | (($index_reg & 7) << 3) | ($base_reg & 7)) . $suffix;
+			$tail= pack('CCa*', $mod_rm | (($reg & 7) << 3) | 4, $scale | (($index_reg & 7) << 3) | ($base_reg & 7), $suffix);
 		}
 		# RSP,R12 always gets a SIB byte
 		elsif (($base_reg&7) == 4) {
-			$tail= pack('CC', $mod_rm | (($reg & 7) << 3) | 4, 0x24) . $suffix;
+			$tail= pack('CCa*', $mod_rm | (($reg & 7) << 3) | 4, 0x24, $suffix);
 		}
 		else {
 			# Null index register is encoded as RSP
-			$tail= pack('C', $mod_rm | (($reg & 7) << 3) | ($base_reg & 7)) . $suffix;
+			$tail= pack('Ca*', $mod_rm | (($reg & 7) << 3) | ($base_reg & 7), $suffix);
 		}
 	} else {
 		# Null base register is encoded as RBP + 32bit displacement
@@ -2447,8 +2516,8 @@ sub _encode_op_reg_mem {
 		if defined $immed;
 	
 	return $rex?
-		pack('CC', ($rex|0x40), $opcode) . $tail
-		: pack('C', $opcode) . $tail;
+		pack('Ca*a*', ($rex|0x40), $opcode, $tail)
+		: $opcode . $tail;
 }
 
 #=head2 _append_mathopNN_const
