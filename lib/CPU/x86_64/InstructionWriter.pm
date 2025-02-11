@@ -496,10 +496,15 @@ sub _autodetect_signature_dst_src {
 
 sub _autodetect_signature_sse {
 	my ($self, $opname, $dst, $src)= @_;
-	my $dst_bits= $register_bits{$dst};
-	my $src_bits= $register_bits{$src};
-	my $method= $opname . (!$dst_bits? '_mem' : $dst_bits == 128? '_xreg' : '_reg')
-		. (!$src_bits? '_mem' : $src_bits == 128? '_xreg' : '_reg');
+	my $dst_type= ref $dst eq 'ARRAY'? 'mem'
+				: exists $regnum128{$dst}? 'xreg'
+	            : $register_bits{$dst}? 'reg'
+	            : croak "Can't identify type of destination operand $dst";
+	my $src_type= ref $src eq 'ARRAY'? 'mem'
+				: exists $regnum128{$src}? 'xreg'
+	            : $register_bits{$src}? 'reg'
+	            : croak "Can't identify type of source operand $src";
+	my $method= "${opname}_${dst_type}_${src_type}";
 	($self->can($method) || croak "No ".uc($opname)." variant $method available")
 		->($self, $dst, $src);
 }
@@ -1990,7 +1995,7 @@ sub movs64 { $_[0]{_buf} .= "\x48\xA5"; $_[0] }
 *movsq= *movs64;
 
 sub movs32 { $_[0]{_buf} .= "\xA5"; $_[0] }
-*movsd= *movs32;
+# movsd below dis-ambiguates
 
 sub movs16 { $_[0]{_buf} .= "\x66\xA5"; $_[0] }
 *movsw= *movs16;
@@ -2098,37 +2103,103 @@ sub sfence {
 
 =head1 SSE/AVX FLOATING POINT INSTRUCTIONS
 
+=head2 movd
+
+Copy 32-bit value to/from an xmm register; upper bits are cleared.  Cannot use xmm registers
+for both src and dst. (use movss instead)
+
+=over
+
+=item movd_xreg_reg
+
+=item movd_xreg_mem
+
+=item movd_reg_xreg
+
+=item movd_mem_xreg
+
+=back
+
 =head2 movq
+
+Copy a 64-bit value to/from an xmm register; upper bits are cleared.
+
+=over
+
+=item movq_xreg_xreg
+
+=item movq_xreg_mem
+
+=item movq_mem_xreg
+
+=item movq_xreg_reg
+
+=item movq_reg_xreg
+
+=back
+
+=head2 movss
+
+Copy a 32-bit value to/from an xmm register; upper bits are unaffected.
+
+=over
+
+=item movss_xreg_xreg
+
+=item movss_xreg_mem
+
+=item movss_mem_xreg
+
+=back
+
+=head2 movsd
+
+Copy a 64-bit value to/from an xmm register; upper bits are unaffected.
+
+=over
+
+=item movsd_xreg_xreg
+
+=item movsd_xreg_mem
+
+=item movsd_mem_xreg
+
+=back
 
 =cut
 
-sub movq { $_[0]->_autodetect_signature_sse($_[1], $_[2]) }
+sub movd { splice @_, 1, 0, 'movd'; &_autodetect_signature_sse }
 
-sub movq_xreg_xreg {
-	my $xreg1= $regnum128{$_[1]} // croak("$_[1] is not a 128-bit register");
-	my $xreg2= $regnum128{$_[2]} // croak("$_[2] is not a 128-bit register");
-	my $rex= ($xreg1 & 8) >> 1 | ($xreg2 & 8) >> 3;
-	my $modrm= 0xC0 | ($xreg1 & 7) << 3 | ($xreg2 & 7);
-	$_[0]{_buf} .= !$rex? pack('CCCC', 0xF3, 0x0F, 0x7E, $modrm)
-		: pack('CCCCC', 0xF3, 0x40|$rex, 0x0F, 0x7E, $modrm);
-	$_[0]
-}
-# nasm produces MOVD w/ rex.w=1 for MOVQ into a general register...
-sub movq_xreg_reg { $_[0]->_append_op128_xreg_reg(0x0F6E, $_[1], $_[2]) }
-sub movq_reg_xreg { $_[0]->_append_op128_xreg_reg(0x0F7E, $_[2], $_[1]) }
-sub movq_xreg_mem { $_[0]->_append_op128_reg_mem("\xF3", 0, 0x0F7E, $_[1], $_[2]) }
-sub movq_mem_xreg { $_[0]->_append_op128_reg_mem("\x66", 0, 0x0FD6, $_[2], $_[1]) }
+sub movd_xreg_reg { $_[0]->_append_op128_xreg_reg("\x66", 0, 0x0F6E, $_[1], $_[2]) }
+sub movd_xreg_mem { $_[0]->_append_op128_xreg_mem("\x66", 0, 0x0F6E, $_[1], $_[2]) }
+sub movd_reg_xreg { $_[0]->_append_op128_xreg_reg("\x66", 0, 0x0F7E, $_[2], $_[1]) }
+sub movd_mem_xreg { $_[0]->_append_op128_xreg_mem("\x66", 0, 0x0F7E, $_[2], $_[1]) }
 
-sub _append_op128_xreg_reg {
-	my ($self, $opcode, $xreg, $reg)= @_;
-	$xreg= $regnum128{$xreg} // croak("$xreg is not a 128-bit register");
-	$reg= $regnum64{$reg} // croak("$reg is not a 64-bit register");
-	$_[0]{_buf} .= pack('CCCCC', 0x66,
-		0x48 | ($xreg & 8) >> 1 | ($reg & 8) >> 3,
-		$opcode>>8, $opcode&0xFF,
-		0xC0 | ($xreg & 7) << 3 | ($reg & 7));
-	$_[0]
+sub movq { splice @_, 1, 0, 'movq'; &_autodetect_signature_sse }
+
+sub movq_xreg_xreg { $_[0]->_append_op128_xreg_xreg("\xF3", 0, 0x0F7E, $_[1], $_[2]) }
+sub movq_xreg_mem  { $_[0]->_append_op128_xreg_mem("\xF3", 0, 0x0F7E, $_[1], $_[2]) }
+sub movq_mem_xreg  { $_[0]->_append_op128_xreg_mem("\x66", 0, 0x0FD6, $_[2], $_[1]) }
+# These are documented in AMD manual as movd with REX.W=1, but nasm doesn't allow movd
+# on qword operands, and does allow movq to move between xmm and normal registers.
+sub movq_xreg_reg  { $_[0]->_append_op128_xreg_reg("\x66", 8, 0x0F6E, $_[1], $_[2]) }
+sub movq_reg_xreg  { $_[0]->_append_op128_xreg_reg("\x66", 8, 0x0F7E, $_[2], $_[1]) }
+
+sub movss { splice @_, 1, 0, 'movss'; &_autodetect_signature_sse }
+
+sub movss_xreg_xreg { $_[0]->_append_op128_xreg_xreg("\xF3", 0, 0x0F10, $_[1], $_[2]) }
+sub movss_xreg_mem  { $_[0]->_append_op128_xreg_mem("\xF3", 0, 0x0F10, $_[1], $_[2]) }
+sub movss_mem_xreg  { $_[0]->_append_op128_xreg_mem("\xF3", 0, 0x0F11, $_[2], $_[1]) }
+
+sub movsd {
+	# Disambiguate "rep movsd" instruction
+	goto \&movs32 if @_ == 1;
+	splice @_, 1, 0, 'movsd'; &_autodetect_signature_sse
 }
+
+sub movsd_xreg_xreg { $_[0]->_append_op128_xreg_xreg("\xF2", 0, 0x0F10, $_[1], $_[2]) }
+sub movsd_xreg_mem  { $_[0]->_append_op128_xreg_mem("\xF2", 0, 0x0F10, $_[1], $_[2]) }
+sub movsd_mem_xreg  { $_[0]->_append_op128_xreg_mem("\xF2", 0, 0x0F11, $_[2], $_[1]) }
 
 =head1 ENCODING x86_64 INSTRUCTIONS
 
@@ -2270,6 +2341,35 @@ sub _append_op8_opreg_reg {
 	$self;
 }
 
+sub _append_op128_xreg_xreg {
+	my ($self, $prefix, $rex, $opcode, $xreg1, $xreg2)= @_;
+	$xreg1= $regnum128{$xreg1} // croak("$xreg1 is not a 128-bit register");
+	$xreg2= $regnum128{$xreg2} // croak("$xreg2 is not a 128-bit register");
+	$rex |= ($xreg1 & 8) >> 1 | ($xreg2 & 8) >> 3;
+	my $modrm= 0xC0 | ($xreg1 & 7) << 3 | ($xreg2 & 7);
+	$_[0]{_buf} .= !$rex? pack('a*CCC', $prefix, $opcode >> 8, $opcode & 0xFF, $modrm)
+		: pack('a*CCCC', $prefix, 0x40|$rex, $opcode >> 8, $opcode & 0xFF, $modrm);
+	$_[0]
+}
+
+sub _append_op128_xreg_reg {
+	my ($self, $prefix, $rex, $opcode, $xreg, $reg)= @_;
+	$xreg= $regnum128{$xreg} // croak("$xreg is not a 128-bit register");
+	if (defined(my $regid= $regnum64{$reg})) {
+		$rex |= 8;
+		$reg= $regid;
+	} elsif (defined($regid= $regnum32{$reg})) {
+		$reg= $regid;
+	} else {
+		croak("$reg is not a 32 or 64-bit register");
+	}
+	$rex |= ($xreg & 8) >> 1 | ($reg & 8) >> 3;
+	my $modrm= 0xC0 | ($xreg & 7) << 3 | ($reg & 7);
+	$_[0]{_buf} .= !$rex? pack('a*CCC', $prefix, $opcode >> 8, $opcode & 0xFF, $modrm)
+		: pack('a*CCCC', $prefix, 0x40|$rex, $opcode >> 8, $opcode & 0xFF, $modrm);
+	$_[0]
+}
+
 #=head2 _append_op##_reg_mem
 #
 #Encode standard ##-bit instruction with REX prefix which addresses memory for one of its operands.
@@ -2277,7 +2377,7 @@ sub _append_op8_opreg_reg {
 #
 #=cut
 
-sub _append_op128_reg_mem {
+sub _append_op128_xreg_mem {
 	my ($self, $prefix, $rex, $opcode, $reg, $mem)= @_;
 	my ($base_reg, $disp, $index_reg, $scale)= @$mem;
 	$reg= $regnum128{$reg} // croak "$reg is not a valid 128-bit register";
@@ -2294,8 +2394,7 @@ sub _append_op128_reg_mem {
 		}
 	}
 	$self->{_buf} .= $prefix if defined $prefix;
-	$self->_append_possible_unknown('_encode_op_reg_mem', [$rex, $opcode, $reg, $base_reg, $disp, $index_reg, $scale],
-		($opcode > 0xFF? (5,8):(4,7)));
+	$self->_append_possible_unknown('_encode_op_reg_mem', [$rex, $opcode, $reg, $base_reg, $disp, $index_reg, $scale],4,7);
 	$self->label($rip) if defined $rip;
 	$self;
 }
