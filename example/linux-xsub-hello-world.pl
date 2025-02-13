@@ -14,19 +14,18 @@ use constant {
 };
 
 # I don't know of a pure-perl way to write to an arbitrary memory location,
-# but this works for anything less than a page :-)
+# but this works for linux :-)
 sub memcpy($dst_addr, $src_sv, $size=length $src_sv) {
-   $size < 4096
-      or die "BUG: needs rewritten with a loop";
-
-   pipe(my $rd, my $wr)
-      or die "pipe: $!";
-   
-   $wr->syswrite($src_sv, $size) == $size
-      or die "write: $!";
-   
-   syscall(SYS_read, fileno($rd), $dst_addr, $size) == $size
-      or die "read: $!";
+	if (-w '/proc/self/mem') {
+		open my $mem, '+>', '/proc/self/mem'     or die "open(/dev/mem): $!";
+		$mem->sysseek($dst_addr, 0) == $dst_addr or die "sysseek: $!";
+		$mem->syswrite($src_sv, $size) == $size  or die "write: $!";
+	} else {
+		$size < 4096 or die "BUG: needs rewritten with a loop";
+		pipe(my $rd, my $wr)                     or die "pipe: $!";
+		$wr->syswrite($src_sv, $size) == $size   or die "write: $!";
+		syscall(SYS_read, fileno($rd), $dst_addr, $size) == $size or die "read: $!";
+	}
 }
 
 # Machine code to write "Hello, World!\n" to stdout (descriptor 1)
