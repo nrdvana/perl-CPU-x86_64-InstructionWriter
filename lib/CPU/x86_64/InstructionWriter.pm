@@ -1872,16 +1872,16 @@ This only implements the 64-bit push instruction.
 =cut
 
 # wait til late in compilation to avoid name clash hassle
-END { eval q|sub push { splice(@_,1,0,'push' ); &_autodetect_signature_1op; }| };
+INIT { eval q|sub push { splice(@_,1,0,'push' ); &_autodetect_signature_1op; }| };
 
-sub push_reg {
+sub push64_reg {
 	my ($self, $reg)= @_;
 	$reg= ($regnum64{$reg} // croak("$reg is not a 64-bit register"));
 	$self->{_buf} .= $reg > 7? pack('CC', 0x41, 0x50+($reg&7)) : pack('C', 0x50+($reg&7));
 	$self;
 }
 
-sub push_imm {
+sub push64_imm {
 	my ($self, $imm)= @_;
 	use integer;
 	my $val= ref $imm? 0x7FFFFFFF : $imm;
@@ -1891,7 +1891,7 @@ sub push_imm {
 	$self;
 }
 
-sub push_mem { shift->_append_op64_reg_mem(0, 0xFF, 6, shift) }
+sub push64_mem { shift->_append_op64_reg_mem(0, 0xFF, 'r6', shift) }
 
 =head2 POP
 
@@ -1899,25 +1899,25 @@ sub push_mem { shift->_append_op64_reg_mem(0, 0xFF, 6, shift) }
 
 =item C<pop($operand, $bits)>
 
-=item C<pop_reg>
+=item C<pop64_reg>
 
-=item C<pop_mem>
+=item C<pop64_mem>
 
 =back
 
 =cut
 
 # wait til late in compilation to avoid name clash hassle
-END { eval q|sub pop { splice(@_,1,0,'pop' ); &_autodetect_signature_1op; }| };
+INIT { eval q|sub pop { splice(@_,1,0,'pop' ); &_autodetect_signature_1op; }| };
 
-sub pop_reg {
+sub pop64_reg {
 	my ($self, $reg)= @_;
 	$reg= ($regnum64{$reg} // croak("$reg is not a 64-bit register"));
 	$self->{_buf} .= $reg > 7? pack('CC', 0x41, 0x58+($reg&7)) : pack('C', 0x58+($reg&7));
 	$self;
 }
 
-sub pop_mem { shift->_append_op64_reg_mem(0, 0x8F, 0, shift) }
+sub pop64_mem { shift->_append_op64_reg_mem(0, 0x8F, 'r0', shift) }
 
 =head2 ENTER
 
