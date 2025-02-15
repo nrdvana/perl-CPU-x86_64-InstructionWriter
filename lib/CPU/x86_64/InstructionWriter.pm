@@ -228,6 +228,7 @@ sub new {
 		_buf => '',
 		_unresolved => [],
 		labels => {},
+		scope => '',
 	}, $class;
 }
 
@@ -253,9 +254,19 @@ sub _unresolved   { croak "read-only" if @_ > 1; $_[0]{_unresolved} }
 This is a set of all labels currently relevant to this writer, indexed by name (so names must
 be unique).   You probably don't need to access this.  See L</get_label> and L</mark>.
 
+=head2 scope
+
+An automatic string prefix applied to any label you create whose name begins with ".".
+
 =cut
 
 sub labels        { croak "read-only" if @_ > 1; $_[0]{labels} }
+
+sub scope {
+	return $_[0]{scope} unless @_ > 1;
+	$_[0]{scope}= $_[1] // '';
+	$_[0]
+}
 
 =head1 METHODS
 
@@ -265,6 +276,7 @@ sub labels        { croak "read-only" if @_ > 1; $_[0]{labels} }
   my $label= $writer->get_label();      # new anonymous label
 
 Return a label object for the given name, or if no name is given, return an anonymous label.
+Names beginning with period "." will be prefixed by the current value of L</scope>.
 
 The label objects returned can be assigned a location within the instruction stream using L</mark>
 and used as the target for C<JMP> and C<JMP>-like instructions.  A label can also be used as a
@@ -276,9 +288,10 @@ is defined.
 sub get_label {
 	my ($self, $name)= @_;
 	my $labels= $self->labels;
+	$name= $self->{scope} . $name if defined $name && ord $name == ord '.';
 	unless (defined $name && defined $labels->{$name}) {
 		my $label= bless { relative_to => $self->start_address }, __PACKAGE__.'::Label';
-		$name= "$label" unless defined $name;
+		$name //= "$self->{scope}.$label";
 		$label->{name}= $name;
 		$labels->{$name}= $label;
 	}
