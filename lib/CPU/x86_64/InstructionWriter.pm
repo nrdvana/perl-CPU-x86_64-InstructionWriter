@@ -537,6 +537,31 @@ sub _autodetect_signature_1op {
 		->($self, $operand);
 }
 
+=head2 CPUID
+
+=over
+
+=item cpuid
+
+Uses EAX as a parameter, and clobbers EAX, EBX, ECX, and EDX with cpu information
+
+=back
+
+=cut
+
+sub cpuid {
+	$_[0]{_buf} .= "\x0F\xA2";
+}
+
+#=item cpuid_test_op_support(@op_names)
+#
+#  ->push(RBX)->cpuid_test_op_support("MOVQ")->pop(RBX)
+#
+#This is a macro that calls cpuid and sets RAX to a boolean indicating whether all of the
+#listed instructions are supported.  The other registers still get clobbered, so you need to
+#preserve those yourself.
+#
+
 =head2 NOP, PAUSE
 
 Insert one or more no-op instructions.
