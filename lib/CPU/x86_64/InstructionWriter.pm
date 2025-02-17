@@ -346,6 +346,44 @@ sub bytes {
 	return $self->_buf;
 }
 
+=head2 append
+
+Append all instructions, labels, and unknowns of another InstructionWriter to the instructions
+of this writer.  These are copied, and do not retain references to the original writer.
+Any label in the other writer which begins with '.' (meaning the other writer's L<scope> was
+the empty string) will be renamed into the current C<scope>.  Other label names are copied
+as-is.  Labels which are anchored to the L<start_address> of the previous writer get an offset
+applied to anchor them in terms of this writer's C<start_address>.
+
+=cut
+
+sub append {
+	my ($self, $peer, $scope)= @_;
+	$scope //= '';
+	my $ofs= length $self->{_buf};
+	$self->{_buf} .= $peer->{_buf};
+	my %label_map;
+	# Copy labels
+	for my $name (keys %{ $peer->{labels} }) {
+		my $peer_label= $peer->{labels}{$name};
+		my $local_name= ord $name == ord '.'? $scope . $name : $name;
+		my $self_label= $self->get_label($local_name);
+		$label_map{$peer_label}= $self_label;
+		# make sure the label doesn't disagree with the existing one
+		croak "Conflicting label '$local_name' is anchored in both writers"
+			if defined $self_label->{offset} && defined $peer_label->{offset}
+			&& $self_label->{relative_to} != $peer_label->{relative_to};
+		$self_label->{offset}= $peer_label->{offset};
+		$self_label->{offset} += $ofs if $peer_label->{relative_to} == $peer->start_address;
+	}
+	# Copy unresolved
+	push @{ $self->_unresolved }, map +(
+		ref eq 'HASH'? { %$_, offset => $_->{offset} + $ofs, target => $label_map{$_->{target}//''} }
+		: $label_map{$_} // croak "Don't know how to copy $_"
+		), @{ $peer->{_unresolved} };
+	$self;
+}
+
 =head1 DATA DECLARATION
 
 This class assembles instructions, but sometimes you want to mix in data, and label the data.
@@ -602,11 +640,12 @@ sub call_label {
 		5, # estimated length
 		encode => sub {
 			my ($self, $params)= @_;
-			defined $label->{offset} or croak "Label $label is not marked";
-			my $ofs= $label->{offset} - ($params->{offset}+$params->{len});
+			defined $params->{target}{offset} or croak "Label $params->{target} is not anchored";
+			my $ofs= $params->{target}{offset} - ($params->{offset}+$params->{len});
 			($ofs >> 31) == ($ofs >> 31 >> 1) or croak "Offset must be within 31 bits";
 			return pack('CV', 0xE8, $ofs);
-		}
+		},
+		target => $label
 	);
 	$self;
 }
@@ -664,71 +703,33 @@ Unconditional jump to label (or 32-bit offset constant).
 # Appends a conditional jump instruction, which is either the short 2-byte form for 8-bit offsets,
 # or 6 bytes for jumps of 32-bit offsets.  The implementation optimistically assumes the 2-byte
 # length until L<resolve> is called, when the actual length will be determined.
-sub _append_jmp_cond {
-	$_[2]= $_[0]->get_label unless defined $_[2];
-	
-	my ($self, $cond, $label)= @_;
+sub _encode_jmp {
+	my ($self, $params)= @_;
+	defined $params->{target}{offset} or croak "Label $params->{target} is not anchored";
+	my $ofs= $params->{target}{offset} - ($params->{offset}+$params->{len});
 	use integer;
-	$label= $self->get_label($label)
-		unless ref $label;
+	my $short= (($ofs>>7) == ($ofs>>8));
+	return $short? $params->{short_op} . pack('c', $ofs)
+		: defined $params->{long_op}? $params->{long_op} . pack('V', $ofs)
+		: croak "Jump to label $params->{target}{name} is too far, can only short-jump".Data::Dumper::Dumper($params);
+}
+use Data::Dumper;
+sub _append_jmp {
+	@_ == 4 or croak "Missing label on jmp instruction";
+	my ($self, $short_op, $long_op, $label)= @_;
+	$_[3]= $self->get_label unless defined $_[3];
 	$self->_mark_unresolved(
 		2, # estimated length
-		encode => sub {
-			my ($self, $params)= @_;
-			defined $label->{offset} or croak "Label $label is not anchored";
-			my $ofs= $label->{offset} - ($params->{offset}+$params->{len});
-			my $short= (($ofs>>7) == ($ofs>>8));
-			return $short?
-				pack('Cc', 0x70 + $cond, $ofs)
-				: pack('CCV', 0x0F, 0x80 + $cond, $ofs);
-		}
+		encode => \&_encode_jmp,
+		short_op => $short_op, long_op => $long_op,
+		target => ref $label? $label : $self->get_label($label),
 	);
-	$self;
-}
-
-# _append_jmp_cx($opcode, $label)
-#
-# Appends one of the special CX-related jumps (like L</loop>).  These can only have an 8-bit offset
-# and are fixed-length.
-sub _append_jmp_cx {
-	my ($self, $op, $label)= @_;
-	use integer;
-	$label= $self->get_label($label)
-		unless ref $label;
-	$self->_mark_unresolved(
-		2, # estimated length
-		encode => sub {
-			my ($self, $params)= @_;
-			defined $label->{offset} or croak "Label $label is not anchored";
-			my $ofs= $label->{offset} - ($params->{offset}+$params->{len});
-			(($ofs>>7) == ($ofs>>8)) or croak "Label too far, can only short-jump";
-			return pack('Cc', $op, $ofs);
-		}
-	);
-	return $self;
-}
+}	
 
 sub jmp {
 	@_ == 2 or croak "Wrong arguments";
-	$_[1]= $_[0]->get_label
-		unless defined $_[1];
-	my ($self, $label)= @_;
-	use integer;
-	$label= $self->get_label($label)
-		unless ref $label;
-	$self->_mark_unresolved(
-		2, # estimated length
-		encode => sub {
-			my ($self, $params)= @_;
-			defined $label->{offset} or croak "Label $label is not marked";
-			my $ofs= $label->{offset} - ($params->{offset}+$params->{len});
-			my $short= (($ofs>>7) == ($ofs>>8));
-			return $short?
-				pack('Cc', 0xEB, $ofs)
-				: pack('CV', 0xE9, $ofs);
-		}
-	);
-	$self;
+	splice @_, 1, 0, "\xEB", "\xE9";
+	&_append_jmp;
 }
 
 =item C<jmp_abs_reg($reg)>
@@ -755,11 +756,16 @@ Jump to label if zero flag is/isn't set after CMP instruction
 
 =cut
 
-sub jmp_if_eq { shift->_append_jmp_cond(4, shift) }
+sub _jmp_cond_ops {
+	my $cond= shift;
+	pack('C', 0x70 | $cond), pack('CC', 0x0F, 0x80 | $cond);
+}
+
+sub jmp_if_eq { splice @_, 1, 0, _jmp_cond_ops(4); &_append_jmp }
 *jz= *jmp_if_eq;
 *je= *jmp_if_eq;
 
-sub jmp_if_ne { shift->_append_jmp_cond(5, shift) }
+sub jmp_if_ne { splice @_, 1, 0, _jmp_cond_ops(5); &_append_jmp }
 *jne= *jmp_if_ne;
 *jnz= *jmp_if_ne;
 
@@ -775,17 +781,17 @@ Jump to label if unsigned less-than / greater-than / less-or-equal / greater-or-
 
 =cut
 
-sub jmp_if_unsigned_lt { shift->_append_jmp_cond(2, shift) }
+sub jmp_if_unsigned_lt { splice @_, 1, 0, _jmp_cond_ops(2); &_append_jmp }
 *jb= *jmp_if_unsigned_lt;
 *jc= *jmp_if_unsigned_lt;
 
-sub jmp_if_unsigned_gt { shift->_append_jmp_cond(7, shift) }
+sub jmp_if_unsigned_gt { splice @_, 1, 0, _jmp_cond_ops(7); &_append_jmp }
 *ja= *jmp_if_unsigned_gt;
 
-sub jmp_if_unsigned_le { shift->_append_jmp_cond(6, shift) }
+sub jmp_if_unsigned_le { splice @_, 1, 0, _jmp_cond_ops(6); &_append_jmp }
 *jbe= *jmp_if_unsigned_le;
 
-sub jmp_if_unsigned_ge { shift->_append_jmp_cond(3, shift) }
+sub jmp_if_unsigned_ge { splice @_, 1, 0, _jmp_cond_ops(3); &_append_jmp }
 *jae= *jmp_if_unsigned_ge;
 *jnc= *jmp_if_unsigned_ge;
 
@@ -801,16 +807,16 @@ Jump to label if signed less-than / greater-than / less-or-equal / greater-or-eq
 
 =cut
 
-sub jmp_if_signed_lt { shift->_append_jmp_cond(12, shift) }
+sub jmp_if_signed_lt { splice @_, 1, 0, _jmp_cond_ops(12); &_append_jmp }
 *jl= *jmp_if_signed_lt;
 
-sub jmp_if_signed_gt { shift->_append_jmp_cond(15, shift) }
+sub jmp_if_signed_gt { splice @_, 1, 0, _jmp_cond_ops(15); &_append_jmp }
 *jg= *jmp_if_signed_gt;
 
-sub jmp_if_signed_le { shift->_append_jmp_cond(14, shift) }
+sub jmp_if_signed_le { splice @_, 1, 0, _jmp_cond_ops(14); &_append_jmp }
 *jle= *jmp_if_signed_le;
 
-sub jmp_if_signed_ge { shift->_append_jmp_cond(13, shift) }
+sub jmp_if_signed_ge { splice @_, 1, 0, _jmp_cond_ops(13); &_append_jmp }
 *jge= *jmp_if_signed_ge;
 
 =item C<jmp_if_sign>, C<js>
@@ -833,23 +839,23 @@ Jump to label if 'parity' flag is/isn't set after CMP instruction
 
 =cut
 
-sub jmp_if_sign         { shift->_append_jmp_cond(8, shift) }
+sub jmp_if_sign         { splice @_, 1, 0, _jmp_cond_ops(8); &_append_jmp }
 *js= *jmp_if_sign;
 
-sub jmp_unless_sign     { shift->_append_jmp_cond(9, shift) }
+sub jmp_unless_sign     { splice @_, 1, 0, _jmp_cond_ops(9); &_append_jmp }
 *jns= *jmp_unless_sign;
 
-sub jmp_if_overflow     { shift->_append_jmp_cond(0, shift) }
+sub jmp_if_overflow     { splice @_, 1, 0, _jmp_cond_ops(0); &_append_jmp }
 *jo= *jmp_if_overflow;
 
-sub jmp_unless_overflow { shift->_append_jmp_cond(1, shift) }
+sub jmp_unless_overflow { splice @_, 1, 0, _jmp_cond_ops(1); &_append_jmp }
 *jno= *jmp_unless_overflow;
 
-sub jmp_if_parity_even  { shift->_append_jmp_cond(10, shift) }
+sub jmp_if_parity_even  { splice @_, 1, 0, _jmp_cond_ops(10); &_append_jmp }
 *jpe= *jmp_if_parity_even;
 *jp= *jmp_if_parity_even;
 
-sub jmp_if_parity_odd   { shift->_append_jmp_cond(11, shift) }
+sub jmp_if_parity_odd   { splice @_, 1, 0, _jmp_cond_ops(11); &_append_jmp }
 *jpo= *jmp_if_parity_odd;
 *jnp= *jmp_if_parity_odd;
 
@@ -876,15 +882,15 @@ Decrement RCX and short-jump to label if RCX register is nonzero and zero flag (
 
 =cut
 
-sub jmp_cx_zero { shift->_append_jmp_cx(0xE3, shift) }
+sub jmp_cx_zero { splice @_, 1, 0, "\xE3", undef; &_append_jmp }
 *jrcxz= *jmp_cx_zero;
 
-sub loop        { shift->_append_jmp_cx(0xE2, shift) }
+sub loop        { splice @_, 1, 0, "\xE2", undef; &_append_jmp }
 
-sub loopz       { shift->_append_jmp_cx(0xE1, shift) }
+sub loopz       { splice @_, 1, 0, "\xE1", undef; &_append_jmp }
 *loope= *loopz;
 
-sub loopnz      { shift->_append_jmp_cx(0xE0, shift) }
+sub loopnz      { splice @_, 1, 0, "\xE0", undef; &_append_jmp }
 *loopne= *loopnz;
 
 =head2 MOV
@@ -2894,6 +2900,7 @@ sub _mark_unresolved {
 	}
 	#print "Unresolved at $offset ($location)\n";
 	push @{ $self->_unresolved }, { offset => $offset, len => $location, @_ };
+	$self;
 }
 
 sub _repack {
@@ -2927,7 +2934,7 @@ sub _resolve {
 		# Track the amount we have shifted the current instruction in $ofs
 		my $ofs= 0;
 		for my $p (@{ $self->_unresolved }) {
-			#print "Shifting $p by $ofs\n" if $ofs;
+			#print "# Shifting $p by $ofs\n" if $ofs;
 			$p->{offset} += $ofs if $ofs;
 			
 			# Ignore things without an 'encode' callback (like labels)
@@ -2941,7 +2948,7 @@ sub _resolve {
 				
 				# If the length changed, update $ofs and current ->len
 				if (length($enc) != $p->{len}) {
-					#print "New size is ".length($enc)."\n";
+					#print "# New size is ".length($enc)."\n";
 					$changed_len= 1;
 					$ofs += (length($enc) - $p->{len});
 					$p->{len}= length($enc);
