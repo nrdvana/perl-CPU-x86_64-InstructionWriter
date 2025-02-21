@@ -30,9 +30,10 @@ The address of this label, relative to 'relative_to'.
 
 =cut 
 
-sub relative_to { @_ > 1 && carp "Read-only"; $_[0]{relative_to} }
-sub name  { @_ > 1 && carp "Read-only"; $_[0]{name} }
-sub offset { @_ > 1 && carp "Read-only"; $_[0]{offset} }
+sub relative_to { @_ > 1 && croak "Read-only"; $_[0]{relative_to} }
+sub name        { @_ > 1 && croak "Read-only"; $_[0]{name} }
+sub offset      { @_ > 1 && croak "Read-only"; $_[0]{offset} }
+sub len         { @_ > 1 && croak "Read-only"; $_[0]{len}||0 }
 sub value {
 	my $offset= $_[0]{offset};
 	my $rel= !defined $_[0]{relative_to}? 0
@@ -46,5 +47,10 @@ sub value {
 Use L<CPU::x86_64::InstructionWriter/get_label> to create labels.
 
 =cut
+
+sub clone_into_writer {
+	my ($self, $writer, $offset, $label_map)= @_;
+	return $label_map->{$self};
+}
 
 1;

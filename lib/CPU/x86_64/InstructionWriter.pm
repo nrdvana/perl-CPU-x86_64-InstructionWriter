@@ -10,6 +10,7 @@ use Encode;
 use CPU::x86_64::InstructionWriter::Unknown;
 use CPU::x86_64::InstructionWriter::Label;
 use CPU::x86_64::InstructionWriter::RipRelative;
+use CPU::x86_64::InstructionWriter::LazyEncode;
 use if !eval{ pack('Q<',1) }, 'CPU::x86_64::InstructionWriter::_int32', qw/pack/;
 
 # ABSTRACT: Assemble x86-64 instructions using a pure-perl API
@@ -56,8 +57,6 @@ This module consists of a bunch of chainable methods which build a string of mac
 you call them.  It supports lazy-resolved jump labels, lazy-resolved RIP-relative addresses,
 and lazy-bound constants which can be assigned a value after the instructions have been
 declared.
-
-B<Note:> This module currently requires a perl with 64-bit integers and C<pack('Q')> support.
 
 =head1 NOTATIONS
 
@@ -225,6 +224,7 @@ sub new {
 		_unresolved => [],
 		labels => {},
 		scope => '',
+		_anon_label => 0,
 	}, $class;
 }
 
@@ -244,6 +244,7 @@ sub start_address { $_[0]{start_address}= $_[1] if @_ > 1; $_[0]{start_address} 
 sub debug         { $_[0]{debug}=         $_[1] if @_ > 1; $_[0]{debug} }
 sub _buf          { croak "read-only" if @_ > 1; $_[0]{_buf} }
 sub _unresolved   { croak "read-only" if @_ > 1; $_[0]{_unresolved} }
+sub _anon_label   { $_[0]{scope} . '.anon' . ++$_[0]{_anon_label} }
 
 =head2 labels
 
@@ -287,7 +288,7 @@ sub get_label {
 	$name= $self->{scope} . $name if defined $name && ord $name == ord '.';
 	unless (defined $name && defined $labels->{$name}) {
 		my $label= bless { relative_to => $self->start_address }, __PACKAGE__.'::Label';
-		$name //= "$self->{scope}.$label";
+		$name //= $self->_anon_label;
 		$label->{name}= $name;
 		$labels->{$name}= $label;
 	}
@@ -322,7 +323,7 @@ sub label {
 		unless ref $label;
 	
 	# A label can only exist once
-	defined $label->{offset} and croak "Can't mark label '$label->{name}' twice";
+	defined $label->offset and croak "Can't mark label '".$label->name."' twice";
 	
 	# Set the label's current location
 	$label->{offset}= length($self->{_buf});
@@ -371,15 +372,17 @@ sub append {
 		$label_map{$peer_label}= $self_label;
 		# make sure the label doesn't disagree with the existing one
 		croak "Conflicting label '$local_name' is anchored in both writers"
-			if defined $self_label->{offset} && defined $peer_label->{offset}
-			&& $self_label->{relative_to} != $peer_label->{relative_to};
+			if defined $self_label->offset && defined $peer_label->offset
+			&& $self_label->relative_to != $peer_label->relative_to;
 		$self_label->{offset}= $peer_label->{offset};
-		$self_label->{offset} += $ofs if $peer_label->{relative_to} == $peer->start_address;
+		$self_label->{offset} += $ofs
+			if defined $self_label->offset && $peer_label->relative_to == $peer->start_address;
 	}
 	# Copy unresolved
 	push @{ $self->_unresolved }, map +(
-		ref eq 'HASH'? { %$_, offset => $_->{offset} + $ofs, target => $label_map{$_->{target}//''} }
-		: $label_map{$_} // croak "Don't know how to copy $_"
+		exists $label_map{$_}? $label_map{$_}
+		: $_->can('clone_into_writer')? $_->clone_into_writer($self, $ofs, \%label_map)
+		: croak "Don't know how to copy $_"
 		), @{ $peer->{_unresolved} };
 	$self;
 }
@@ -408,7 +411,7 @@ sub _align {
 	length($fill) == 1 or croak "Fill byte must be 1 byte long";
 	$self->_mark_unresolved(
 		0,
-		encode => sub {
+		encoder => sub {
 			#warn "start=$_[1]{start}, mask=$mask, ~mask=${\~$mask} ".((($_[1]{start} + ~$mask) & $mask) - $_[1]{start})."\n";
 			$fill x ((($_[1]{offset} + ~$mask) & $mask) - $_[1]{offset})
 		}
@@ -444,7 +447,7 @@ sub data {
 		my $buf= '';
 		my $pos= length $self->{_buf};
 		for my $str (sort { length $b <=> length $a } keys %$set) {
-			my $label= $set->{$str} //= $self->get_label;
+			my $label= ($set->{$str} //= $self->get_label);
 			defined $label->{offset} and croak "Label for '$str' is already anchored";
 			# Scan buf for existing string
 			my $ofs= index $buf, $str;
@@ -638,7 +641,7 @@ sub call_label {
 		unless ref $label;
 	$self->_mark_unresolved(
 		5, # estimated length
-		encode => sub {
+		encoder => sub {
 			my ($self, $params)= @_;
 			defined $params->{target}{offset} or croak "Label $params->{target} is not anchored";
 			my $ofs= $params->{target}{offset} - ($params->{offset}+$params->{len});
@@ -653,7 +656,7 @@ sub call_label {
 sub call_rel {
 	my ($self, $immed)= @_;
 	$self->{_buf} .= pack('CV', 0xE8, ref $immed? 0 : $immed);
-	$self->_mark_unresolved(-4, encode => '_repack', bits => 32, value => $immed)
+	$self->_mark_unresolved(-4, encoder => '_repack', bits => 32, value => $immed)
 		if ref $immed;
 	$self;
 }
@@ -672,7 +675,7 @@ sub ret {
 	my ($self, $pop_bytes)= @_;
 	if ($pop_bytes) {
 		$self->{_buf} .= pack('Cv', 0xC2, ref $pop_bytes? 0 : $pop_bytes);
-		$self->_mark_unresolved(-2, encode => '_repack', bits => 16, value => $pop_bytes)
+		$self->_mark_unresolved(-2, encoder => '_repack', bits => 16, value => $pop_bytes)
 			if ref $pop_bytes;
 	}
 	else {
@@ -705,8 +708,8 @@ Unconditional jump to label (or 32-bit offset constant).
 # length until L<resolve> is called, when the actual length will be determined.
 sub _encode_jmp {
 	my ($self, $params)= @_;
-	defined $params->{target}{offset} or croak "Label $params->{target} is not anchored";
-	my $ofs= $params->{target}{offset} - ($params->{offset}+$params->{len});
+	defined $params->target->offset or croak "Label ".$params->target." is not anchored";
+	my $ofs= $params->target->offset - ($params->offset + $params->len);
 	use integer;
 	my $short= (($ofs>>7) == ($ofs>>8));
 	return $short? $params->{short_op} . pack('c', $ofs)
@@ -720,7 +723,7 @@ sub _append_jmp {
 	$_[3]= $self->get_label unless defined $_[3];
 	$self->_mark_unresolved(
 		2, # estimated length
-		encode => \&_encode_jmp,
+		encoder => \&_encode_jmp,
 		short_op => $short_op, long_op => $long_op,
 		target => ref $label? $label : $self->get_label($label),
 	);
@@ -959,7 +962,7 @@ sub _append_mov_reg_mem {
 			if (!defined $val) {
 				$self->_mark_unresolved(
 					10, # longest instruction possible, not the greatest guess.
-					encode => sub {
+					encoder => sub {
 						my $v= $disp->value;
 						defined $v or croak "Placeholder $disp has not been assigned";
 						return $v > 0x7FFFFFFF? $opstr . pack('Q<', $v)
@@ -1406,7 +1409,7 @@ sub _append_shiftop_reg_imm {
 	# If not using the shift-one opcode, append an immediate byte.
 	unless ($immed eq 1) {
 		$self->{_buf} .= pack('C', ref $immed? 0 : $immed);
-		$self->_mark_unresolved(-1, encode => '_repack', bits => 8, value => $immed)
+		$self->_mark_unresolved(-1, encoder => '_repack', bits => 8, value => $immed)
 			if ref $immed;
 	}
 	
@@ -1426,7 +1429,7 @@ sub _append_shiftop_mem_imm {
 	# If not using the shift-one opcode, append an immediate byte.
 	unless ($immed eq 1) {
 		$self->{_buf} .= pack('C', ref $immed? 0 : $immed);
-		$self->_mark_unresolved(-1, encode => '_repack', bits => 8, value => $immed)
+		$self->_mark_unresolved(-1, encoder => '_repack', bits => 8, value => $immed)
 			if ref $immed;
 	}
 	
@@ -1947,7 +1950,7 @@ sub push64_imm {
 	use integer;
 	my $val= ref $imm? 0x7FFFFFFF : $imm;
 	$self->{_buf} .= (($val >> 7) == ($val >> 8))? pack('Cc', 0x6A, $val) : pack('CV', 0x68, $val);
-	$self->_mark_unresolved(-4, encode => '_repack', bits => 32, value => $imm)
+	$self->_mark_unresolved(-4, encoder => '_repack', bits => 32, value => $imm)
 		if ref $imm;
 	$self;
 }
@@ -1999,10 +2002,10 @@ sub enter {
 	}
 	else {
 		$self->{_buf} .= pack('Cv', 0xC8, ref $varspace? 0 : $varspace);
-		$self->_mark_unresolved(-2, encode => '_repack', bits => 16, value => $varspace)
+		$self->_mark_unresolved(-2, encoder => '_repack', bits => 16, value => $varspace)
 			if ref $varspace;
 		$self->{_buf} .= pack('C', ref $nesting? 0 : $nesting);
-		$self->_mark_unresolved(-1, encode => '_repack', bits => 8, value => $nesting)
+		$self->_mark_unresolved(-1, encoder => '_repack', bits => 8, value => $nesting)
 			if ref $nesting;
 	}
 	$self
@@ -2506,9 +2509,9 @@ sub _append_op_reg_mem {
 	if (defined $base_reg) {
 		$base_reg= $regnum64{$base_reg} // croak "$base_reg is not a valid 64-bit register";
 		if (($base_reg & 0x40) && ref $disp) { # RIP-relative
-			$disp= $self->get_label($$disp) if ref $disp eq 'SCALAR';
-			$rip= $self->get_label;
-			$disp= bless { rip => $rip, label => $disp }, 'CPU::x86_64::InstructionWriter::RipRelative';
+			$disp= defined $$disp? $self->get_label($$disp) : ($$disp= $self->get_label)
+				if ref $disp eq 'SCALAR';
+			$disp= bless { target => $disp }, 'CPU::x86_64::InstructionWriter::RipRelative';
 		}
 	}
 	$self->{_buf} .= $prefix if defined $prefix;
@@ -2753,7 +2756,7 @@ sub _append_mathop8_const {
 	} else {
 		$self->{_buf} .= pack('CCC', $opcode8, 0xC0 | ($opcode_reg << 3) | ($reg & 7), $value&0xFF);
 	}
-	$self->_mark_unresolved(-1, encode => '_repack', bits => 8, value => $immed)
+	$self->_mark_unresolved(-1, encoder => '_repack', bits => 8, value => $immed)
 		if ref $immed;
 	$self;
 }
@@ -2842,14 +2845,19 @@ sub _append_possible_unknown {
 			or croak "Expected object with '->value' method";
 		$self->_mark_unresolved(
 			$estimated_length,
-			encode => sub {
-				my $self= shift;
+			encoder => sub {
+				my ($self, $lazy_enc)= @_;
 				my @args= @$encoder_args;
-				$args[$unknown_pos]= $u->value
-					// croak "Value '$u->{name}' is still unresolved";
+				$args[$unknown_pos]= $lazy_enc->unknown->value
+					// croak "Value '".$lazy_enc->unknown->name."' is still unresolved";
 				$self->$encoder(@args);
 			},
+			unknown => $u,
 		);
+		# If the unknown is a rip-relative displacement, give it a reference to the
+		# instruction so it can calculate the offset
+		$u->instruction($self->_unresolved->[-1])
+			if $u->can('instruction');
 	}
 	else {
 		$self->{_buf} .= $self->$encoder(@$encoder_args);
@@ -2899,7 +2907,9 @@ sub _mark_unresolved {
 		push @_, caller => \@caller;
 	}
 	#print "Unresolved at $offset ($location)\n";
-	push @{ $self->_unresolved }, { offset => $offset, len => $location, @_ };
+	push @{ $self->_unresolved },
+		bless { relative_to => $self->start_address, offset => $offset, len => $location, @_ },
+			'CPU::x86_64::InstructionWriter::LazyEncode';
 	$self;
 }
 
@@ -2938,7 +2948,7 @@ sub _resolve {
 			$p->{offset} += $ofs if $ofs;
 			
 			# Ignore things without an 'encode' callback (like labels)
-			my $fn= $p->{encode}
+			my $fn= $p->can('encoder') && $p->encoder
 				or next;
 			
 			# Get new encoding, then replace those bytes in the instruction string
@@ -2955,8 +2965,9 @@ sub _resolve {
 				}
 				1
 			} or do {
-				if ($p->{caller}) {
-					croak "Failed to encode instruction $p->{caller}[3] from $p->{caller}[1] line $p->{caller}[2]:\n   $@";
+				if (my $caller= $p->caller) {
+					(my $op= $caller->[3]) =~ s/.*:://;
+					croak "Failed to encode instruction $op from $caller->[1] line $caller->[2]:\n   $@";
 				} else {
 					croak "Failed to encode instruction (enable diagnostics with ->debug(1) ): $@";
 				}
