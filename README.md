@@ -2,7 +2,7 @@
 
 This module is an assembler for x86-64 instructions, but using a Perl API
 instead of parsing assembly language, and implemented entirely in perl
-rather than shelling out to gcc or nasm.
+rather than shelling out to gcc or nasm (which can be very slow).
 
 It isn't finished, but is usable for some basic cases.
 
