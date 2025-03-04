@@ -14,12 +14,12 @@ You can install the latest release from CPAN:
 
 or if you have a release tarball,
 
-    cpanm CPU-x86_64-InstructionWriter-001.tar.gz
+    cpanm CPU-x86_64-InstructionWriter-005.tar.gz
 
 or manually build it with
 
-    tar -xf CPU-x86_64-InstructionWriter-001.tar.gz
-    cd CPU-x86_64-InstructionWriter-001
+    tar -xf CPU-x86_64-InstructionWriter-005.tar.gz
+    cd CPU-x86_64-InstructionWriter-005
     perl Makefile.PL
     make
     make test
@@ -34,5 +34,5 @@ Download or checkout the source code, then:
 
 To build and install a trial version, use
 
-    V=0.001_01 dzil build
-    cpanm CPU-x86_64-InstructionWriter-001_01.tar.gz
+    V=0.005_01 dzil build
+    cpanm CPU-x86_64-InstructionWriter-005_01.tar.gz
